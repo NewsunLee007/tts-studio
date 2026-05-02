@@ -1,8 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node"
+import type { Express } from "express"
 
-import { createApp } from "../server/src/index"
+let appPromise: Promise<Express> | undefined
 
-let appPromise: ReturnType<typeof createApp> | undefined
+async function loadApp() {
+  const { createApp } = await import("../server/src/index")
+  return createApp()
+}
 
 function forwardedPath(req: VercelRequest) {
   const rawPath = req.query.path
@@ -27,7 +31,7 @@ function forwardedPath(req: VercelRequest) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   req.url = forwardedPath(req)
   try {
-    appPromise ||= createApp()
+    appPromise ||= loadApp()
     const app = await appPromise
     app(req, res)
   } catch (err) {
