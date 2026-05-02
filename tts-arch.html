@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web TTS 制作台 - 架构草图</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #020617;
+        --panel: rgba(15, 23, 42, 0.85);
+        --border: #1e293b;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 20px 22px 12px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(2, 6, 23, 1), rgba(2, 6, 23, 0.75));
+      }
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 6px;
+        font-size: 16px;
+        letter-spacing: 0.2px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #22d3ee;
+        box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
+        animation: pulse 2.2s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(34, 211, 238, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+        }
+      }
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+      main {
+        padding: 16px 22px 22px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 14px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 12px;
+      }
+      .card ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.45;
+      }
+      footer {
+        padding: 10px 22px 18px;
+        color: var(--muted);
+        font-size: 9px;
+      }
+      @media (max-width: 920px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 class="title"><span class="dot"></span>Web TTS 制作台（英语听力音频）</h1>
+      <p class="subtitle">
+        架构草图：浏览器管理片段与风格；服务端代理调用 TTS 大模型并合成 MP3；最终可下载整段音频。
+      </p>
+    </header>
+
+    <main>
+      <div class="card">
+        <svg viewBox="0 0 1000 680" width="100%" height="auto" role="img" aria-label="architecture">
+          <defs>
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5" />
+            </pattern>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+            </marker>
+          </defs>
+
+          <rect x="0" y="0" width="1000" height="680" fill="url(#grid)" />
+
+          <g stroke="#64748b" stroke-width="1.25" marker-end="url(#arrowhead)" fill="none" opacity="0.9">
+            <path d="M 250 140 C 340 140, 340 140, 430 140" />
+            <path d="M 560 140 C 660 140, 660 140, 760 140" />
+            <path d="M 760 180 C 760 260, 760 260, 760 340" />
+            <path d="M 560 400 C 660 400, 660 400, 760 400" />
+            <path d="M 250 500 C 340 500, 340 500, 430 500" />
+            <path d="M 560 500 C 660 500, 660 500, 760 500" />
+          </g>
+
+          <g>
+            <rect x="70" y="70" width="250" height="210" rx="12" fill="rgba(8, 51, 68, 0.18)" stroke="#22d3ee"
+              stroke-width="1.5" stroke-dasharray="8,4" />
+            <text x="195" y="95" fill="#22d3ee" font-size="10" text-anchor="middle">Frontend（浏览器）</text>
+
+            <rect x="95" y="110" width="200" height="70" rx="8" fill="#0f172a" />
+            <rect x="95" y="110" width="200" height="70" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee"
+              stroke-width="1.5" />
+            <text x="195" y="135" fill="white" font-size="11" font-weight="600" text-anchor="middle">制作台 UI</text>
+            <text x="195" y="152" fill="#94a3b8" font-size="9" text-anchor="middle">片段列表 / 风格 / 试听</text>
+            <text x="195" y="168" fill="#94a3b8" font-size="9" text-anchor="middle">API Key 仅本地存储</text>
+
+            <rect x="95" y="200" width="200" height="60" rx="8" fill="#0f172a" />
+            <rect x="95" y="200" width="200" height="60" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee"
+              stroke-width="1.5" />
+            <text x="195" y="225" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              导出请求
+            </text>
+            <text x="195" y="242" fill="#94a3b8" font-size="9" text-anchor="middle">生成整段 MP3 / 下载</text>
+          </g>
+
+          <g>
+            <rect x="430" y="70" width="320" height="470" rx="12" fill="rgba(6, 78, 59, 0.18)" stroke="#34d399"
+              stroke-width="1.5" stroke-dasharray="8,4" />
+            <text x="590" y="95" fill="#34d399" font-size="10" text-anchor="middle">Backend（服务端）</text>
+
+            <rect x="455" y="110" width="270" height="70" rx="8" fill="#0f172a" />
+            <rect x="455" y="110" width="270" height="70" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399"
+              stroke-width="1.5" />
+            <text x="590" y="135" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              API Gateway
+            </text>
+            <text x="590" y="152" fill="#94a3b8" font-size="9" text-anchor="middle">
+              认证 / 限流 / 任务编排
+            </text>
+
+            <rect x="455" y="210" width="270" height="120" rx="8" fill="#0f172a" />
+            <rect x="455" y="210" width="270" height="120" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399"
+              stroke-width="1.5" />
+            <text x="590" y="235" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              TTS Adapter
+            </text>
+            <text x="590" y="252" fill="#94a3b8" font-size="9" text-anchor="middle">
+              调用大模型 TTS（可换厂商）
+            </text>
+            <text x="590" y="268" fill="#94a3b8" font-size="9" text-anchor="middle">
+              统一参数：语言/音色/风格
+            </text>
+            <text x="590" y="284" fill="#94a3b8" font-size="9" text-anchor="middle">
+              输出：segment audio（wav/mp3）
+            </text>
+
+            <rect x="455" y="360" width="270" height="80" rx="8" fill="#0f172a" />
+            <rect x="455" y="360" width="270" height="80" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399"
+              stroke-width="1.5" />
+            <text x="590" y="385" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              Audio Composer
+            </text>
+            <text x="590" y="402" fill="#94a3b8" font-size="9" text-anchor="middle">
+              拼接片段 + 无声片段
+            </text>
+            <text x="590" y="418" fill="#94a3b8" font-size="9" text-anchor="middle">
+              输出 MP3（ffmpeg）
+            </text>
+
+            <rect x="455" y="470" width="270" height="50" rx="8" fill="#0f172a" />
+            <rect x="455" y="470" width="270" height="50" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399"
+              stroke-width="1.5" />
+            <text x="590" y="500" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              File Store (临时)
+            </text>
+            <text x="590" y="516" fill="#94a3b8" font-size="9" text-anchor="middle">
+              segment / final mp3
+            </text>
+          </g>
+
+          <g>
+            <rect x="760" y="95" width="200" height="110" rx="10" fill="#0f172a" />
+            <rect x="760" y="95" width="200" height="110" rx="10" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8"
+              stroke-width="1.5" />
+            <text x="860" y="125" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              外部 TTS Provider
+            </text>
+            <text x="860" y="142" fill="#94a3b8" font-size="9" text-anchor="middle">
+              API Key（老师提供）
+            </text>
+            <text x="860" y="158" fill="#94a3b8" font-size="9" text-anchor="middle">
+              voices / styles
+            </text>
+            <text x="860" y="174" fill="#94a3b8" font-size="9" text-anchor="middle">
+              返回音频
+            </text>
+
+            <rect x="760" y="330" width="200" height="140" rx="10" fill="#0f172a" />
+            <rect x="760" y="330" width="200" height="140" rx="10" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8"
+              stroke-width="1.5" />
+            <text x="860" y="360" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              下载 / 分享
+            </text>
+            <text x="860" y="377" fill="#94a3b8" font-size="9" text-anchor="middle">
+              final.mp3
+            </text>
+            <text x="860" y="393" fill="#94a3b8" font-size="9" text-anchor="middle">
+              可选：保存工程
+            </text>
+
+            <rect x="760" y="475" width="200" height="70" rx="10" fill="#0f172a" />
+            <rect x="760" y="475" width="200" height="70" rx="10" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8"
+              stroke-width="1.5" />
+            <text x="860" y="503" fill="white" font-size="11" font-weight="600" text-anchor="middle">
+              目标：英语听力
+            </text>
+            <text x="860" y="520" fill="#94a3b8" font-size="9" text-anchor="middle">
+              对话 / 旁白 / 空白
+            </text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3>核心交互</h3>
+          <ul>
+            <li>• 文本片段列表：增删改、排序、试听</li>
+            <li>• 片段类型：TTS / 无声（n 秒）</li>
+            <li>• 导出：合成为 MP3 并下载</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>风格与音色</h3>
+          <ul>
+            <li>• 内置常用风格：播音员 / 对话 / 讲解</li>
+            <li>• 每段可选 voice/style 或按全局默认</li>
+            <li>• 默认面向英语（en-US / en-GB）</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>安全与成本</h3>
+          <ul>
+            <li>• API Key 不落库（仅浏览器保存）</li>
+            <li>• 服务端只做代理与合成，不记录明文 key</li>
+            <li>• 可选：按 IP / 项目限流，防止滥用</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <footer>草图仅用于对齐需求：后续会把 UI 与 API 具体化，然后再开始落地实现。</footer>
+  </body>
+</html>

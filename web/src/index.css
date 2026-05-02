@@ -1,0 +1,64 @@
+:root {
+  --bg: #f5f8fb;
+  --bg-strong: #e8eef6;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-solid: #ffffff;
+  --ink: #0b1220;
+  --text: #1d2939;
+  --muted: #7a8699;
+  --muted-strong: #536071;
+  --border: rgba(93, 110, 135, 0.16);
+  --border-strong: rgba(70, 88, 114, 0.26);
+  --teal: #0f7f7a;
+  --teal-soft: rgba(15, 127, 122, 0.10);
+  --blue: #2563eb;
+  --blue-soft: rgba(37, 99, 235, 0.10);
+  --amber: #d97706;
+  --amber-soft: rgba(217, 119, 6, 0.12);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.10);
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.10);
+  --focus: rgba(37, 99, 235, 0.24);
+  --shadow: 0 22px 70px rgba(15, 23, 42, 0.09);
+  --shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.07);
+  --sans: Inter, "SF Pro Display", "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --display: Inter, "SF Pro Display", "Avenir Next", "Segoe UI", sans-serif;
+
+  font: 16px/150% var(--sans);
+  letter-spacing: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 18% 14%, rgba(37, 99, 235, 0.11), transparent 28%),
+    radial-gradient(circle at 82% 8%, rgba(15, 127, 122, 0.12), transparent 30%),
+    linear-gradient(135deg, #f8fbff 0%, #eef4fb 46%, #f9fbfd 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  min-height: 100svh;
+  text-align: left;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
