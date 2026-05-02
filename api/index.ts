@@ -26,7 +26,13 @@ function forwardedPath(req: VercelRequest) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   req.url = forwardedPath(req)
-  appPromise ||= createApp()
-  const app = await appPromise
-  app(req, res)
+  try {
+    appPromise ||= createApp()
+    const app = await appPromise
+    app(req, res)
+  } catch (err) {
+    appPromise = undefined
+    const message = err instanceof Error ? err.message : "Serverless function failed"
+    res.status(500).json({ ok: false, error: message })
+  }
 }

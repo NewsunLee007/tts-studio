@@ -27,6 +27,7 @@ This repository is ready for GitHub -> Vercel deployment:
 - Vercel build command: `npm run build`
 - Vercel output directory: `web/dist`
 - Serverless API entry: `api/index.ts`
+- Node runtime: `22.x`
 
 Required Vercel environment variable:
 

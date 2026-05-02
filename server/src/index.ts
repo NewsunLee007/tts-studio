@@ -37,7 +37,6 @@ import { xfyunTts } from "./tts/providers/xfyun.js"
 import { preparePhonicsRequest } from "./tts/phonics.js"
 import { runFfmpeg } from "./ffmpeg.js"
 import type { TtsAudio, TtsCredentials, UnifiedTtsRequest } from "./tts/types.js"
-import { ProxyAgent, fetch as undiciFetch } from "undici"
 
 type TtsRequestBody = {
   provider?: ProviderId
@@ -139,8 +138,7 @@ async function fetchGoogleCatalog(config: ProviderConfig, body: CatalogBody) {
   const endpoint = (body.baseUrl || config.defaultBaseUrl || "https://texttospeech.googleapis.com/v1/text:synthesize").replace(/\/text:synthesize\/?$/, "/voices")
   const url = endpoint.includes("?") ? `${endpoint}&key=${encodeURIComponent(apiKey)}` : `${endpoint}?key=${encodeURIComponent(apiKey)}`
   const proxyUrl = body.credentials?.proxyUrl || process.env.HTTPS_PROXY || process.env.HTTP_PROXY
-  const dispatcher = proxyUrl ? new ProxyAgent(String(proxyUrl)) : undefined
-  const res = await undiciFetch(url, dispatcher ? { dispatcher } : undefined)
+  const res = proxyUrl ? await fetchWithProxy(url, String(proxyUrl)) : await fetch(url)
   const responseText = await res.text().catch(() => "")
   const json = (() => {
     try {
@@ -177,6 +175,11 @@ async function fetchGoogleCatalog(config: ProviderConfig, body: CatalogBody) {
     source: "remote",
     message: `已从 Google 拉取 ${remoteVoices.length} 个英文候选音色；Google TTS 模型入口固定为 text:synthesize。`
   }
+}
+
+async function fetchWithProxy(url: string, proxyUrl: string) {
+  const { ProxyAgent, fetch: undiciFetch } = await import("undici")
+  return undiciFetch(url, { dispatcher: new ProxyAgent(proxyUrl) })
 }
 
 async function fetchProviderCatalog(provider: ProviderId, body: CatalogBody) {
@@ -283,6 +286,7 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
 }
 
 async function writeAudioToMp3(id: string, audio: TtsAudio) {
+  await ensureStorage()
   const filePath = segmentPath(id)
   if (audio.format === "mp3") {
     await fs.writeFile(filePath, audio.bytes)
@@ -331,6 +335,7 @@ function statusFromProviderError(message: string) {
 }
 
 async function sendStoredAudio(req: express.Request, res: express.Response, kind: "segment" | "export") {
+  await ensureStorage()
   const rawFile = req.params.file
   const file = Array.isArray(rawFile) ? rawFile[0] || "" : rawFile || ""
   const match = file.match(/^([0-9a-f-]{36})\.(mp3|wav)$/i)
@@ -350,7 +355,6 @@ async function sendStoredAudio(req: express.Request, res: express.Response, kind
 }
 
 export async function createApp() {
-  await ensureStorage()
   const app = express()
   app.disable("x-powered-by")
   app.use(express.json({ limit: "2mb" }))
@@ -491,6 +495,7 @@ export async function createApp() {
     const wavPaths: string[] = []
 
     try {
+      await ensureStorage()
       await fs.mkdir(dir, { recursive: true })
 
       let i = 0
