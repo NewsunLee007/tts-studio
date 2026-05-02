@@ -1008,6 +1008,7 @@ textarea:focus {
 }
 
 .waveRail {
+  position: relative;
   height: 38px;
   border-radius: 14px;
   background: linear-gradient(90deg, rgba(37, 99, 235, 0.10), rgba(15, 127, 122, 0.10));
@@ -1026,6 +1027,19 @@ textarea:focus {
   background: linear-gradient(180deg, var(--blue), var(--teal));
   opacity: 0.72;
   animation: wavePulse 2.4s ease-in-out infinite;
+}
+
+.transportSeek {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.transportSeek:disabled {
+  cursor: not-allowed;
 }
 
 .waveRail span:nth-child(3n) {

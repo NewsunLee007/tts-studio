@@ -42,7 +42,15 @@ function isTtsSegment(segment: Segment): segment is TtsSegment {
 }
 
 function stripLeadingSpeakerTag(input: string) {
-  return input.replace(/^\s*(?:(\d+)[.、)]\s*)?(M|W|A|B)\s*:\s*/i, "").trim()
+  let next = input.trim()
+  let previous = ""
+  while (next && next !== previous) {
+    previous = next
+    next = next
+      .replace(/^\s*(?:(\d+)[.、)]\s*)?(?:M|W|A|B|Male|Female|Man|Woman|男|女|男士|女士)\s*[:：]\s*/i, "")
+      .trim()
+  }
+  return next
 }
 
 function normalizeDialogueText(input: string) {
@@ -51,8 +59,10 @@ function normalizeDialogueText(input: string) {
     .map((raw) => raw.trim())
     .filter(Boolean)
     .map((line) => {
-      const collapsed = line.replace(/^\s*(M|W|A|B)\s*:\s*(?:(?:M|W|A|B)\s*:\s*)+/i, "$1: ")
-      return collapsed.replace(/^\s*A\s*:/i, "M:").replace(/^\s*B\s*:/i, "W:")
+      const speaker = line.match(/^\s*(M|W|A|B|Male|Female|Man|Woman|男|女|男士|女士)\s*[:：]/i)?.[1] || ""
+      if (!speaker) return line
+      const normalizedSpeaker = /^(?:W|B|Female|Woman|女|女士)$/i.test(speaker) ? "Female" : "Male"
+      return `${normalizedSpeaker}: ${stripLeadingSpeakerTag(line)}`
     })
     .join("\n")
 }
@@ -252,6 +262,14 @@ function credentialsComplete(provider: ProviderConfig | undefined, credentials: 
   return provider.credentialFields.every((field) => !field.required || Boolean(credentials[field.key]?.trim()))
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableTtsError(message: string) {
+  return /429|RateQuota|rate limit|Throttling|超时|timeout|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT/i.test(message)
+}
+
 function readStoredNumber(key: string, fallback: number) {
   const raw = safeGetItem(key)
   if (!raw) return fallback
@@ -336,6 +354,7 @@ export default function App() {
   const [analyzing, setAnalyzing] = useState(false)
   const stopRef = useRef(false)
   const previewStopRef = useRef(false)
+  const previewRunIdRef = useRef(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const providerRef = useRef(provider)
 
@@ -588,19 +607,22 @@ export default function App() {
     localStorage.removeItem("tts_workspace_segments")
   }
 
-  async function startPreview() {
+  async function startPreview(startAt = previewIndex) {
     if (previewing) return
     if (!previewItems.length) {
       setPreviewError("暂无可预览的已生成音频")
       return
     }
+    const startIndex = Math.max(0, Math.min(previewItems.length - 1, startAt))
+    const runId = previewRunIdRef.current + 1
+    previewRunIdRef.current = runId
     previewStopRef.current = false
     setPreviewError("")
     setPreviewing(true)
-    setPreviewIndex(0)
+    setPreviewIndex(startIndex)
 
     const playAt = async (idx: number): Promise<void> => {
-      if (previewStopRef.current) return
+      if (previewStopRef.current || previewRunIdRef.current !== runId) return
       const item = previewItems[idx]
       if (!item) {
         setPreviewing(false)
@@ -609,17 +631,20 @@ export default function App() {
       setPreviewIndex(idx)
 
       if (item.kind === "silence") {
-        await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, item.durationMs)))
+        await delay(Math.max(0, item.durationMs))
         return playAt(idx + 1)
       }
 
       const audio = audioRef.current
       if (!audio) return
+      audio.pause()
       audio.src = item.url
+      audio.currentTime = 0
 
       try {
         await audio.play()
       } catch (err) {
+        if (previewStopRef.current || previewRunIdRef.current !== runId) return
         setPreviewError(err instanceof Error ? err.message : "预览播放失败")
         setPreviewing(false)
         return
@@ -628,21 +653,30 @@ export default function App() {
       await new Promise<void>((resolve) => {
         const onEnd = () => {
           audio.removeEventListener("ended", onEnd)
+          audio.removeEventListener("error", onError)
+          resolve()
+        }
+        const onError = () => {
+          audio.removeEventListener("ended", onEnd)
+          audio.removeEventListener("error", onError)
           resolve()
         }
         audio.addEventListener("ended", onEnd)
+        audio.addEventListener("error", onError)
       })
 
       return playAt(idx + 1)
     }
 
-    playAt(0).catch((err) => {
+    playAt(startIndex).catch((err) => {
+      if (previewStopRef.current || previewRunIdRef.current !== runId) return
       setPreviewError(err instanceof Error ? err.message : "预览失败")
       setPreviewing(false)
     })
   }
 
   function stopPreview() {
+    previewRunIdRef.current += 1
     previewStopRef.current = true
     setPreviewing(false)
     const audio = audioRef.current
@@ -650,6 +684,16 @@ export default function App() {
       audio.pause()
       audio.currentTime = 0
     }
+  }
+
+  function seekPreview(index: number) {
+    const nextIndex = Math.max(0, Math.min(Math.max(0, previewItems.length - 1), index))
+    setPreviewIndex(nextIndex)
+    if (!previewing) return
+    stopPreview()
+    window.setTimeout(() => {
+      void startPreview(nextIndex)
+    }, 0)
   }
 
   function clearAudio(segUid: string) {
@@ -810,10 +854,12 @@ export default function App() {
   async function requestSegmentTts(seg: TtsSegment, text = seg.text) {
     const allowedModels = providerConfig?.models || []
     const modelToUse = seg.modelId && allowedModels.some((m) => m.id === seg.modelId) ? seg.modelId : modelId
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const maxAttempts = provider === "dashscope" ? 3 : provider === "google_gemini" ? 2 : 1
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
         provider,
         credentials,
         baseUrl,
@@ -828,18 +874,61 @@ export default function App() {
         pitch: seg.pitch || 1,
         volume: seg.volume || 1
       })
-    })
-    const rawText = await res.text()
-    const json = (() => {
-      try {
-        return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
-      } catch {
-        return { error: rawText }
+      })
+      const rawText = await res.text()
+      const json = (() => {
+        try {
+          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
+        } catch {
+          return { error: rawText }
+        }
+      })()
+      const message = json.error || rawText || "生成失败"
+      if (res.ok) {
+        if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
+        return json
       }
-    })()
-    if (!res.ok) throw new Error(json.error || "生成失败")
-    if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
-    return json
+      if (attempt < maxAttempts && (res.status === 429 || isRetryableTtsError(message))) {
+        const waitMs = provider === "dashscope" ? 3500 * attempt : 1800 * attempt
+        setBulkProgressText(`服务商繁忙，${Math.round(waitMs / 1000)} 秒后自动重试 ${attempt}/${maxAttempts - 1}`)
+        await delay(waitMs)
+        continue
+      }
+      throw new Error(message)
+    }
+    throw new Error("生成失败")
+  }
+
+  async function postTtsJson(path: string, body: Record<string, unknown>, fallbackError: string) {
+    const maxAttempts = provider === "dashscope" ? 3 : provider === "google_gemini" ? 2 : 1
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      })
+      const rawText = await res.text()
+      const json = (() => {
+        try {
+          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
+        } catch {
+          return { error: rawText }
+        }
+      })()
+      const message = json.error || rawText || fallbackError
+      if (res.ok) {
+        if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
+        return json
+      }
+      if (attempt < maxAttempts && (res.status === 429 || isRetryableTtsError(message))) {
+        const waitMs = provider === "dashscope" ? 3500 * attempt : 1800 * attempt
+        setBulkProgressText(`服务商繁忙，${Math.round(waitMs / 1000)} 秒后自动重试 ${attempt}/${maxAttempts - 1}`)
+        await delay(waitMs)
+        continue
+      }
+      throw new Error(message)
+    }
+    throw new Error(fallbackError)
   }
 
   function normalizeDirectorSegment(item: DirectorSegment): Segment {
@@ -954,10 +1043,7 @@ export default function App() {
       if (!contentSegments.length && questionSegments.length) {
         const question = questionSegments[0]
         const combinedText = question.text.trim()
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const json = await postTtsJson("/api/tts", {
             provider,
             credentials,
             baseUrl,
@@ -971,18 +1057,7 @@ export default function App() {
             speed: targetSpeedForText(combinedText, template),
             pitch: question.pitch || 1,
             volume: question.volume || 1
-          })
-        })
-        const rawText = await res.text()
-        const json = (() => {
-          try {
-            return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
-          } catch {
-            return { error: rawText }
-          }
-        })()
-        if (!res.ok) throw new Error(json.error || "生成失败")
-        if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
+          }, "生成失败")
 
         setSegments((prev) => {
           const containerUid = container.uid
@@ -1014,10 +1089,7 @@ export default function App() {
         const maleVoice = geminiDialogueVoiceForGroup("male", groupId, normalizedPromptLines)
         const femaleVoice = geminiDialogueVoiceForGroup("female", groupId, normalizedPromptLines)
 
-        const res = await fetch("/api/gemini/tts/dialogue", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const json = await postTtsJson("/api/gemini/tts/dialogue", {
             credentials,
             baseUrl,
             model: modelId,
@@ -1027,18 +1099,7 @@ export default function App() {
               { speaker: "Male", voiceName: maleVoice },
               { speaker: "Female", voiceName: femaleVoice }
             ]
-          })
-        })
-        const rawText = await res.text()
-        const json = (() => {
-          try {
-            return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
-          } catch {
-            return { error: rawText }
-          }
-        })()
-        if (!res.ok) throw new Error(json.error || "Gemini 对话生成失败")
-        if (!json.id || !json.url) throw new Error("Gemini 对话生成返回缺少音频信息")
+          }, "Gemini 对话生成失败")
 
         const combinedText = normalizedPromptLines
 
@@ -1048,7 +1109,7 @@ export default function App() {
           return prev.map((item) => {
             if (!isTtsSegment(item)) return item
             if (item.uid === containerUid) {
-              return { ...item, text: combinedText, label: `对话 ${groupId}`, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
+              return { ...item, providerOverrides: { ...(item.providerOverrides || {}), generatedGroupText: combinedText }, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
             }
             if (item.repeatOfUid === containerUid) {
               return { ...item, status: "done", error: "" }
@@ -1066,10 +1127,7 @@ export default function App() {
 
       const combinedText = cleanExamAudioText(overrideText || contentSegments.map((s) => s.text.trim()).join("\n\n"))
       if (!combinedText) throw new Error("当前小题没有可生成的正文，请检查是否只粘贴了题目或选项。")
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const json = await postTtsJson("/api/tts", {
           provider,
           credentials,
           baseUrl,
@@ -1083,26 +1141,15 @@ export default function App() {
           speed: targetSpeedForText(combinedText, template),
           pitch: container.pitch || 1,
           volume: container.volume || 1
-        })
-      })
-      const rawText = await res.text()
-      const json = (() => {
-        try {
-          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
-        } catch {
-          return { error: rawText }
-        }
-      })()
-      if (!res.ok) throw new Error(json.error || "生成失败")
-      if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
+        }, "生成失败")
 
       setSegments((prev) => {
         const containerUid = container.uid
         const secondContainer = pickGroupContainer(secondPass, "second")
         return prev.map((item) => {
-          if (!isTtsSegment(item)) return item
-          if (item.uid === containerUid) {
-            return { ...item, text: combinedText, label: `短文 ${groupId}`, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
+            if (!isTtsSegment(item)) return item
+            if (item.uid === containerUid) {
+            return { ...item, providerOverrides: { ...(item.providerOverrides || {}), generatedGroupText: combinedText }, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
           }
           if (item.repeatOfUid === containerUid) {
             return { ...item, status: "done", error: "" }
@@ -1151,6 +1198,7 @@ export default function App() {
           if (segment.uid === item.uid || segment.repeatOfUid === item.uid) return { ...segment, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
           return segment
         }))
+        if (provider === "dashscope" && targets.length > 1) await delay(1200)
       }
 
       setSegments((prev) =>
@@ -1277,6 +1325,7 @@ export default function App() {
       done++
       if (!ok) failed++
       setBulkProgressText(`${done}/${queue.length}${failed ? ` · 失败 ${failed}` : ""}`)
+      if (!stopRef.current && provider === "dashscope") await delay(1200)
     }
     setBulkRunning(false)
     setBulkProgressText(`${done}/${queue.length}${failed ? ` · 失败 ${failed}` : " · 完成"}`)
@@ -1515,7 +1564,11 @@ export default function App() {
 
   const stats = useMemo(() => {
     const tts = segments.filter((item) => item.type === "tts")
-    const generated = tts.filter((item) => item.audioId).length
+    const generated = tts.filter((item) => {
+      if (item.audioId || item.status === "skipped") return true
+      if (!item.repeatOfUid) return false
+      return Boolean(segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId)))
+    }).length
     const errors = tts.filter((item) => item.status === "error").length
     const queued = tts.filter((item) => item.status === "queued" || item.status === "generating").length
     return {
@@ -1544,6 +1597,7 @@ export default function App() {
           segments.some((item) => item.type === "tts") &&
           segments.every((item) => {
             if (item.type !== "tts") return true
+            if (item.status === "skipped") return true
             if (item.audioId) return true
             if (!item.repeatOfUid) return false
             return Boolean(segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId)))
@@ -1654,7 +1708,7 @@ export default function App() {
 
       <footer className="transportBar" aria-label="project transport">
         <div className="transportControls">
-          <button className="btnGhost" type="button" onClick={startPreview} disabled={previewing || !previewItems.length}>
+          <button className="btnGhost" type="button" onClick={() => void startPreview(previewIndex)} disabled={previewing || !previewItems.length}>
             {previewing ? "预览中…" : "预览"}
           </button>
           <button className="btnGhost" type="button" onClick={stopPreview} disabled={!previewing}>
@@ -1671,10 +1725,21 @@ export default function App() {
             </span>
           </div>
         </div>
-        <div className="waveRail" aria-hidden="true">
+        <div className="waveRail">
           {Array.from({ length: 42 }).map((_, index) => (
             <span key={index} style={{ height: `${18 + ((index * 7) % 28)}px` }} />
           ))}
+          <input
+            className="transportSeek"
+            type="range"
+            min={0}
+            max={Math.max(0, previewItems.length - 1)}
+            step={1}
+            value={Math.min(previewIndex, Math.max(0, previewItems.length - 1))}
+            onChange={(event) => seekPreview(Number(event.target.value))}
+            disabled={!previewItems.length}
+            aria-label="预览播放进度"
+          />
         </div>
         <div className="transportMeta transportMetaRight">
           <strong>{stats.totalTime}</strong>

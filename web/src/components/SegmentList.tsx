@@ -91,7 +91,9 @@ function groupForGemini(input: Segment[]) {
 function groupStatusLabel(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "silence")) return "无声"
   if (group.segments.every((s) => s.type === "music")) return "音乐"
-  const tts = group.segments.filter(isTts).filter((s) => !isQuestion(s))
+  const allTts = group.segments.filter(isTts)
+  const nonQuestion = allTts.filter((s) => !isQuestion(s))
+  const tts = nonQuestion.length ? nonQuestion : allTts
   if (tts.some((s) => s.status === "error")) return "失败"
   if (tts.some((s) => s.status === "generating")) return "生成中"
   if (tts.some((s) => s.status === "queued")) return "等待"
@@ -103,7 +105,9 @@ function groupStatusLabel(group: GeminiGroup) {
 function groupStatusTone(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "silence")) return "statusMuted"
   if (group.segments.every((s) => s.type === "music")) return "statusMusic"
-  const tts = group.segments.filter(isTts).filter((s) => !isQuestion(s))
+  const allTts = group.segments.filter(isTts)
+  const nonQuestion = allTts.filter((s) => !isQuestion(s))
+  const tts = nonQuestion.length ? nonQuestion : allTts
   if (tts.some((s) => s.status === "error")) return "statusError"
   if (tts.some((s) => s.status === "queued" || s.status === "generating")) return "statusBusy"
   if (tts.some((s) => s.status === "skipped")) return "statusMuted"
