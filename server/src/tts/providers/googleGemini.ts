@@ -95,6 +95,25 @@ function estimateTimeoutMs(text: string) {
   return Math.max(base, Math.min(180000, base + extra))
 }
 
+function isLoopbackProxyUrl(proxyUrl: string) {
+  try {
+    const { hostname } = new URL(proxyUrl)
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+  } catch {
+    return false
+  }
+}
+
+function proxyDispatcher(proxyUrl?: string) {
+  if (!proxyUrl) return undefined
+  if (process.env.VERCEL && isLoopbackProxyUrl(proxyUrl)) {
+    throw new Error(
+      "Gemini TTS proxy configuration error (400): 线上 Vercel 不能使用本机代理地址 127.0.0.1/localhost。请清空 Proxy URL，让 Vercel 直接访问 Google，或填写一个 Vercel 可访问的公网 HTTPS 代理地址。"
+    )
+  }
+  return new ProxyAgent(proxyUrl)
+}
+
 async function callGeminiTts(args: {
   url: string
   apiKey: string
@@ -152,7 +171,7 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
   const voiceName = req.voice || "Iapetus"
 
   const proxyUrl = req.credentials.proxyUrl || process.env.HTTPS_PROXY || process.env.HTTP_PROXY
-  const dispatcher = proxyUrl ? new ProxyAgent(String(proxyUrl)) : undefined
+  const dispatcher = proxyDispatcher(proxyUrl)
 
   const url = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`
 
@@ -222,7 +241,7 @@ export async function googleGeminiDialogueTts(args: {
   const model = args.model || "gemini-3.1-flash-tts-preview"
 
   const proxyUrl = args.credentials.proxyUrl || args.proxyUrl || process.env.HTTPS_PROXY || process.env.HTTP_PROXY
-  const dispatcher = proxyUrl ? new ProxyAgent(String(proxyUrl)) : undefined
+  const dispatcher = proxyDispatcher(proxyUrl)
 
   const url = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`
   const speakerVoiceConfigs = args.speakers.slice(0, 2).map((item) => ({
