@@ -27,6 +27,26 @@ function formatDuration(durationMs: number) {
   return `${seconds}秒`
 }
 
+function normalizeOneLine(text: string) {
+  return text.trim().replace(/\s+/g, " ")
+}
+
+function truncate(text: string, max = 54) {
+  const normalized = normalizeOneLine(text)
+  return normalized.length > max ? normalized.slice(0, max) + "…" : normalized
+}
+
+function rangeTitleFromGroupId(groupId?: string) {
+  if (!groupId) return ""
+  const range = groupId.match(/^q-(\d+)(?:-(\d+))?$/)
+  if (!range) return ""
+  const start = Number(range[1])
+  const end = range[2] ? Number(range[2]) : start
+  if (!Number.isFinite(start)) return ""
+  if (!Number.isFinite(end) || end === start) return `第${start}题`
+  return `第${start}至${end}题`
+}
+
 type GeminiGroup = {
   key: string
   groupId?: string
@@ -111,13 +131,18 @@ function groupTitle(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "music")) return summarize(group.segments[0])
   const tts = group.segments.filter(isTts)
   if (tts.some(isIntro)) return "听力导入"
+  const rangeTitle = rangeTitleFromGroupId(group.groupId)
+  if (rangeTitle) return rangeTitle
   const question = tts.find((s) => isQuestion(s))
-  if (question?.text?.trim()) return question.text.trim().replace(/\s+/g, " ")
+  if (question?.text?.trim()) return truncate(question.text, 44)
+  const narrator = tts.find((s) => s.role === "narrator" || s.role === "neutral")
+  if (narrator?.label && narrator.label !== "旁白") return narrator.label
   const container = tts.find((s) => !isQuestion(s) && !s.repeatOfUid) || tts[0]
   return container ? summarize(container) : "片段"
 }
 
 function groupSummary(group: GeminiGroup) {
+  if (group.segments.every((s) => s.type === "silence") || group.segments.every((s) => s.type === "music")) return ""
   const tts = group.segments.filter(isTts).filter((s) => !isQuestion(s) && !s.repeatOfUid && s.status !== "skipped")
   if (!tts.length) return ""
   const text = tts
@@ -128,7 +153,11 @@ function groupSummary(group: GeminiGroup) {
     })
     .join(" / ")
     .replace(/\s+/g, " ")
-  return text.length > 54 ? text.slice(0, 54) + "…" : text
+  const summary = truncate(text)
+  const title = groupTitle(group)
+  if (normalizeOneLine(title) === normalizeOneLine(summary)) return ""
+  if (normalizeOneLine(summary).startsWith(normalizeOneLine(title))) return ""
+  return summary
 }
 
 export function SegmentList(props: Props) {
