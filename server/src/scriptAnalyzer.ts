@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import type { PacePresetId, StylePresetId } from "./presets.js"
 
 export type ExamTemplate = {
@@ -517,7 +516,7 @@ export function analyzeExamScript(input: string, template: ExamTemplate): Analyz
   }
 
   if (template.includeExamIntro !== false) {
-    const groupId = randomUUID()
+    const groupId = "exam-intro"
     segments.push({
       type: "tts",
       text: examIntro(template),

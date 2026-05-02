@@ -42,6 +42,11 @@ function isQuestion(seg: TtsSegment) {
   return seg.role === "question" || seg.stylePresetId === "question_marker"
 }
 
+function isIntro(seg: TtsSegment) {
+  const text = seg.text.trim()
+  return seg.role === "intro" || seg.label === "考试介绍" || /听力测试[。.!！]?$/i.test(text)
+}
+
 function groupForGemini(input: Segment[]) {
   const groups: GeminiGroup[] = []
   let currentKey = ""
@@ -91,6 +96,7 @@ function groupKind(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "music")) return { label: "音乐", className: "badgeMusic" }
   const tts = group.segments.filter(isTts)
   const nonQuestion = tts.filter((s) => !isQuestion(s))
+  if (nonQuestion.some(isIntro)) return { label: "导入", className: "badgeIntro" }
   if (!nonQuestion.length && tts.length) {
     const text = tts.map((s) => s.text.trim()).join(" ")
     if (/^Number\s+\d+/i.test(text)) return { label: "题号", className: "badgeQuestion" }
@@ -104,9 +110,9 @@ function groupTitle(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "silence")) return summarize(group.segments[0])
   if (group.segments.every((s) => s.type === "music")) return summarize(group.segments[0])
   const tts = group.segments.filter(isTts)
+  if (tts.some(isIntro)) return "听力导入"
   const question = tts.find((s) => isQuestion(s))
   if (question?.text?.trim()) return question.text.trim().replace(/\s+/g, " ")
-  if (group.groupId) return `小题 ${group.groupId}`
   const container = tts.find((s) => !isQuestion(s) && !s.repeatOfUid) || tts[0]
   return container ? summarize(container) : "片段"
 }
