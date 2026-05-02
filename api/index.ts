@@ -4,7 +4,7 @@ import type { Express } from "express"
 let appPromise: Promise<Express> | undefined
 
 async function loadApp() {
-  const { createApp } = await import("../server/src/index")
+  const { createApp } = await import("../server/src/index.js")
   return createApp()
 }
 
