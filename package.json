@@ -7,8 +7,11 @@
   ],
   "scripts": {
     "dev": "PORT=8090 npm -w server run dev & npm -w web run dev",
-    "build": "npm -w web run build",
+    "build": "npm -w server run build && npm -w web run build",
     "lint": "npm -w web run lint",
     "smoke:compose": "node server/scripts/smoke-compose.mjs"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.5.2"
   }
 }

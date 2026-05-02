@@ -1,9 +1,21 @@
 import express from "express"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
+import { fileURLToPath } from "node:url"
 import { promises as fs } from "node:fs"
 
-import { ensureStorageDirs, exportPathWithExt, exportsDir, jobDir, segmentPath, segmentsDir } from "./storage.js"
+import {
+  ensureStorage,
+  exportPathWithExt,
+  exportsDir,
+  isDatabaseStorageEnabled,
+  jobDir,
+  materializeSegment,
+  readAudioBlob,
+  saveAudioBlob,
+  segmentPath,
+  segmentsDir
+} from "./storage.js"
 import {
   providerConfigs,
   stylePresets,
@@ -274,6 +286,7 @@ async function writeAudioToMp3(id: string, audio: TtsAudio) {
   const filePath = segmentPath(id)
   if (audio.format === "mp3") {
     await fs.writeFile(filePath, audio.bytes)
+    await saveAudioBlob("segment", id, audio.bytes, "audio/mpeg")
     return
   }
 
@@ -282,6 +295,7 @@ async function writeAudioToMp3(id: string, audio: TtsAudio) {
   const inputWav = path.join(dir, "input.wav")
   await fs.writeFile(inputWav, audio.bytes)
   await runFfmpeg(["-y", "-i", inputWav, "-c:a", "libmp3lame", "-q:a", "2", filePath])
+  await saveAudioBlob("segment", id, await fs.readFile(filePath), "audio/mpeg")
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
 }
 
@@ -316,15 +330,55 @@ function statusFromProviderError(message: string) {
   return null
 }
 
-async function main() {
-  await ensureStorageDirs()
+async function sendStoredAudio(req: express.Request, res: express.Response, kind: "segment" | "export") {
+  const rawFile = req.params.file
+  const file = Array.isArray(rawFile) ? rawFile[0] || "" : rawFile || ""
+  const match = file.match(/^([0-9a-f-]{36})\.(mp3|wav)$/i)
+  if (!match) {
+    res.status(404).json({ error: "audio not found" })
+    return
+  }
+  const [, id, ext] = match
+  const record = await readAudioBlob(kind, id)
+  if (!record) {
+    res.status(404).json({ error: "audio not found" })
+    return
+  }
+  res.setHeader("Content-Type", record.contentType || (ext === "wav" ? "audio/wav" : "audio/mpeg"))
+  res.setHeader("Cache-Control", "private, max-age=3600")
+  res.send(record.bytes)
+}
 
+export async function createApp() {
+  await ensureStorage()
   const app = express()
   app.disable("x-powered-by")
   app.use(express.json({ limit: "2mb" }))
 
-  app.use("/audio", express.static(segmentsDir, { immutable: false, maxAge: "0" }))
-  app.use("/exports", express.static(exportsDir, { immutable: false, maxAge: "0" }))
+  if (isDatabaseStorageEnabled()) {
+    app.get("/audio/:file", (req, res) => {
+      void sendStoredAudio(req, res, "segment")
+    })
+    app.get("/exports/:file", (req, res) => {
+      void sendStoredAudio(req, res, "export")
+    })
+    app.get("/api/audio/:file", (req, res) => {
+      void sendStoredAudio(req, res, "segment")
+    })
+    app.get("/api/exports/:file", (req, res) => {
+      void sendStoredAudio(req, res, "export")
+    })
+  } else {
+    app.use("/audio", express.static(segmentsDir, { immutable: false, maxAge: "0" }))
+    app.use("/exports", express.static(exportsDir, { immutable: false, maxAge: "0" }))
+  }
+
+  app.get("/api/health", (_req, res) => {
+    res.json({
+      ok: true,
+      storage: isDatabaseStorageEnabled() ? "neon" : "local"
+    })
+  })
 
   app.get("/api/providers", (_req, res) => {
     res.json({
@@ -445,7 +499,7 @@ async function main() {
 
         if (seg.type === "tts") {
           if (typeof seg.id !== "string" || !seg.id) continue
-          const src = segmentPath(seg.id)
+          const src = await materializeSegment(seg.id, dir)
           const dst = path.join(dir, `${String(i).padStart(4, "0")}.wav`)
           await runFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", dst])
           wavPaths.push(dst)
@@ -501,6 +555,7 @@ async function main() {
       } else {
         await runFfmpeg(["-y", "-i", joinedWav, "-c:a", "libmp3lame", "-q:a", "2", finalFile])
       }
+      await saveAudioBlob("export", id, await fs.readFile(finalFile), format === "wav" ? "audio/wav" : "audio/mpeg")
 
       res.json({ id, url: `/exports/${id}.${format}` })
     } catch (err) {
@@ -511,13 +566,21 @@ async function main() {
     }
   })
 
+  return app
+}
+
+async function main() {
+  const app = await createApp()
   const port = Number(process.env.PORT || 8090)
   app.listen(port, () => {
     process.stdout.write(`server listening on http://localhost:${port}\n`)
   })
 }
 
-main().catch((err) => {
-  process.stderr.write((err instanceof Error ? err.stack : String(err)) + "\n")
-  process.exit(1)
-})
+const entrypoint = process.argv[1] ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) : false
+if (entrypoint) {
+  main().catch((err) => {
+    process.stderr.write((err instanceof Error ? err.stack : String(err)) + "\n")
+    process.exit(1)
+  })
+}
