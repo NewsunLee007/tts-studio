@@ -68,7 +68,6 @@ export function TopBar(props: Props) {
 
         <div className="topbarActions">
           <div className="actionCluster">
-            <span className="clusterLabel">生成</span>
             <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning}>
               {props.bulkRunning ? "队列中…" : "生成未完成"}
             </button>
@@ -84,16 +83,15 @@ export function TopBar(props: Props) {
           </div>
 
           <div className="actionCluster actionClusterExport">
-            <span className="clusterLabel">导出</span>
             <select className="formatSelect" value={props.exportFormat} onChange={(e) => props.onExportFormatChange(e.target.value === "wav" ? "wav" : "mp3")}>
               <option value="mp3">MP3</option>
               <option value="wav">WAV</option>
             </select>
             <button className="btnAccent" type="button" onClick={props.onCompose} disabled={!props.canCompose || props.composeRunning}>
-              {props.composeRunning ? "合成中…" : `合成并下载`}
+              {props.composeRunning ? "合成中…" : "合成"}
             </button>
             <button className="btn" type="button" onClick={props.onDownloadLast} disabled={!props.lastExportUrl || props.composeRunning}>
-              下载成品
+              下载
             </button>
           </div>
 

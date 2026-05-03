@@ -132,8 +132,8 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 54px;
-  padding: 17px 9px 8px;
+  min-height: 46px;
+  padding: 6px 8px;
   border: 1px solid rgba(93, 110, 135, 0.14);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.58);
@@ -145,17 +145,10 @@
 }
 
 .actionClusterUtility {
-  padding-right: 10px;
-}
-
-.clusterLabel {
-  position: absolute;
-  top: 5px;
-  left: 10px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .composeGroup {
