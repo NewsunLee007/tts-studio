@@ -14,6 +14,34 @@ type Props = {
   questionNumberGapMs: number
 }
 
+const examPlaceholder = `可以直接粘贴完整听力文稿：中文题干说明、题号、对话/独白正文、选项和结束语都可以一次放进来。
+
+系统功能：
+1. 自动划分语音片段，识别大题说明、题号提示、听力正文和考试结束语。
+2. 自动跳过 A/B/C/D 选项、答案行和书面题干，减少手工删改。
+3. 自动识别“读两遍”等要求，并为需要重读的正文生成第 2 遍。
+4. 自动识别 M/W/A/B、男/女、Man/Woman 等角色标记，分配男女声。
+5. 自动插入读题、作答、题号间隔和结束前停顿；需要手动分块时，可单独插入一行 ---。
+
+真实示例：
+第一节：听下面5段小对话，每段对话后有一个小题。每段对话仅读一遍。
+1. M: Hi, Mary. How do you usually go to school?
+W: I usually ride my bike, but today I took the bus because of the rain.
+A. By bike.
+B. By bus.
+C. On foot.
+---
+第二节：听下面一段较长对话，回答第6至第7两个小题。对话读两遍。
+M: Good morning. Can I help you?
+W: Yes, please. I want to buy a sweater for my son.
+M: What color does he like?
+W: Blue. How much is this one?
+M: It is fifty yuan.
+---
+第三节：听独白，从A、B、C三个选项中选出正确选项。独白读两遍。
+Hello, welcome to our school radio station. Today we are going to meet a new friend, Fiona.
+听力测试到此结束。`
+
 export function BulkPaste(props: Props) {
   const [text, setText] = useState("")
   const [mode, setMode] = useState<InputMode>("exam")
@@ -75,7 +103,7 @@ export function BulkPaste(props: Props) {
         className="pasteArea"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={"在此粘贴听力试卷脚本或文本…\n\n规则：M:/W:/A:/B:/男:/女: 会作为听力正文；A/B/C/D 选项、英文问句题干、答案行会自动过滤。\n\n提示：在需要手动分题的位置插入一行 ---（三个横线）。\n\n示例：\n1. M: Hello.\nW: Hi.\nA. At school.\nB. At home.\n---\n听下面一段对话，回答第2题。"}
+        placeholder={examPlaceholder}
         rows={10}
       />
 
