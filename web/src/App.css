@@ -20,7 +20,7 @@
   margin: 0 auto;
   padding: 12px 22px;
   display: grid;
-  grid-template-columns: minmax(330px, 0.96fr) minmax(330px, 0.86fr) minmax(560px, 1.36fr);
+  grid-template-columns: minmax(300px, 0.74fr) minmax(300px, 0.62fr) minmax(760px, 1.64fr);
   align-items: center;
   gap: 18px;
 }
@@ -120,11 +120,42 @@
 
 .topbarActions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: nowrap;
   min-width: 0;
+}
+
+.actionCluster {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 54px;
+  padding: 17px 9px 8px;
+  border: 1px solid rgba(93, 110, 135, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.actionClusterExport {
+  background: linear-gradient(135deg, rgba(15, 127, 122, 0.09), rgba(255, 252, 244, 0.72));
+}
+
+.actionClusterUtility {
+  padding-right: 10px;
+}
+
+.clusterLabel {
+  position: absolute;
+  top: 5px;
+  left: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .composeGroup {
@@ -144,10 +175,10 @@
 }
 
 .bulkHint {
-  min-width: 58px;
+  min-width: 54px;
   color: var(--muted-strong);
   font-size: 12px;
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
 }
 
@@ -1553,8 +1584,14 @@ textarea:focus {
 
   .topbarActions > button,
   .topbarActions .composeGroup,
+  .topbarActions .actionCluster,
   .topbarActions .settingsButton {
     width: 100%;
+  }
+
+  .actionCluster {
+    flex-wrap: wrap;
+    align-content: flex-start;
   }
 
   .composeGroup {

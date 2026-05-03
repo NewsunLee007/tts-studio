@@ -11,6 +11,8 @@ type Props = {
   canCompose: boolean
   composeRunning: boolean
   onCompose: () => void
+  lastExportUrl: string
+  onDownloadLast: () => void
   exportFormat: "mp3" | "wav"
   onExportFormatChange: (value: "mp3" | "wav") => void
   onOpenSettings: () => void
@@ -65,33 +67,44 @@ export function TopBar(props: Props) {
         </div>
 
         <div className="topbarActions">
-          <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning}>
-            {props.bulkRunning ? "队列生成中…" : "生成未完成"}
-          </button>
-          <div className="composeGroup">
+          <div className="actionCluster">
+            <span className="clusterLabel">生成</span>
+            <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning}>
+              {props.bulkRunning ? "队列中…" : "生成未完成"}
+            </button>
+            <button className="btn" type="button" onClick={props.onGenerateSelected} disabled={props.bulkRunning}>
+              生成选中
+            </button>
+            <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning || !props.stats.errors}>
+              重试失败
+            </button>
+            <button className="btnGhost" type="button" onClick={props.onStopGenerateAll} disabled={!props.bulkRunning}>
+              停止
+            </button>
+          </div>
+
+          <div className="actionCluster actionClusterExport">
+            <span className="clusterLabel">导出</span>
             <select className="formatSelect" value={props.exportFormat} onChange={(e) => props.onExportFormatChange(e.target.value === "wav" ? "wav" : "mp3")}>
               <option value="mp3">MP3</option>
               <option value="wav">WAV</option>
             </select>
             <button className="btnAccent" type="button" onClick={props.onCompose} disabled={!props.canCompose || props.composeRunning}>
-              {props.composeRunning ? "合成中…" : `合成 ${props.exportFormat.toUpperCase()}`}
+              {props.composeRunning ? "合成中…" : `合成并下载`}
+            </button>
+            <button className="btn" type="button" onClick={props.onDownloadLast} disabled={!props.lastExportUrl || props.composeRunning}>
+              下载成品
             </button>
           </div>
-          <button className="btn" type="button" onClick={props.onGenerateSelected} disabled={props.bulkRunning}>
-            生成选中
-          </button>
-          <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning || !props.stats.errors}>
-            重试失败
-          </button>
-          <button className="btnGhost" type="button" onClick={props.onStopGenerateAll} disabled={!props.bulkRunning}>
-            停止
-          </button>
-          <button className="settingsButton" type="button" onClick={props.onOpenSettings}>
-            <span aria-hidden="true">⌘</span>
-            <span>设置</span>
-          </button>
-          <div className="bulkHint" aria-live="polite">
-            {props.bulkProgressText || (props.stats.queued ? `${props.stats.queued} 等待` : "")}
+
+          <div className="actionCluster actionClusterUtility">
+            <button className="settingsButton" type="button" onClick={props.onOpenSettings}>
+              <span aria-hidden="true">⌘</span>
+              <span>设置</span>
+            </button>
+            <div className="bulkHint" aria-live="polite">
+              {props.bulkProgressText || (props.stats.queued ? `${props.stats.queued} 等待` : "")}
+            </div>
           </div>
         </div>
       </div>

@@ -173,6 +173,18 @@ function readJson(key: string) {
   }
 }
 
+function readStoredSegments() {
+  const raw = readJson("tts_workspace_segments")
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((item): item is Segment => item && typeof item === "object" && "uid" in item && "type" in item)
+    .map((item) => {
+      if (item.type !== "tts") return item
+      const status = item.status === "queued" || item.status === "generating" ? "idle" : item.status
+      return { ...item, status, error: status === "idle" ? "" : item.error }
+    })
+}
+
 function providerPrefsKey(provider: ProviderId) {
   return `tts_provider_prefs_${provider}`
 }
@@ -346,7 +358,8 @@ export default function App() {
   const [catalogState, setCatalogState] = useState<"idle" | "loading" | "done" | "error">("idle")
   const [catalogMessage, setCatalogMessage] = useState("")
 
-  const [segments, setSegments] = useState<Segment[]>([])
+  const [segments, setSegments] = useState<Segment[]>(() => readStoredSegments())
+  const [lastExportUrl, setLastExportUrl] = useState("")
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
   const [composeRunning, setComposeRunning] = useState(false)
   const [composeError, setComposeError] = useState("")
@@ -532,6 +545,10 @@ export default function App() {
   useEffect(() => {
     safeSetItem("tts_export_format", exportFormat)
   }, [exportFormat])
+
+  useEffect(() => {
+    safeSetItem("tts_workspace_segments", JSON.stringify(segments))
+  }, [segments])
 
   useEffect(() => {
     safeSetItem(
@@ -1098,6 +1115,15 @@ export default function App() {
     return segment.role === "question" || segment.stylePresetId === "question_marker"
   }
 
+  function shouldGenerateAsGroup(segment: TtsSegment) {
+    if (!segment.groupId || isQuestionRole(segment) || segment.repeatOfUid) return false
+    if (segment.role === "intro" || segment.groupId.includes("::instruction") || segment.groupId.includes("::closing") || segment.groupId.includes("::number")) return false
+    const list = groupSegments(segment.groupId).filter((item) => !item.repeatOfUid && !isSecondPassSegment(item) && Boolean(item.text.trim()))
+    const hasDialogue = list.some((item) => item.role === "male" || item.role === "female" || Boolean(toDialogueSpeaker(item)))
+    const hasMultipleNarrationTurns = list.filter((item) => !isQuestionRole(item)).length > 1
+    return hasDialogue || hasMultipleNarrationTurns
+  }
+
   function toDialogueSpeaker(segment: TtsSegment): "M" | "W" | "" {
     if (segment.role === "male") return "M"
     if (segment.role === "female") return "W"
@@ -1341,7 +1367,7 @@ export default function App() {
       updateSegment(segUid, { status: "error", error: "文本不能为空" })
       return false
     }
-    if (seg.groupId && !isQuestionRole(seg)) {
+    if (seg.groupId && shouldGenerateAsGroup(seg)) {
       return generateGroup(seg.groupId)
     }
     if (!containsPhonicsToken(seg.text) && !credentialsComplete(providerConfig, credentials)) {
@@ -1433,20 +1459,17 @@ export default function App() {
   }
 
   function generateAll() {
-    const groupIds = Array.from(
-      new Set(
-        segments
-          .filter((item): item is TtsSegment => isTtsSegment(item) && Boolean(item.groupId) && !item.audioId && !item.repeatOfUid && Boolean(item.text.trim()))
-          .map((item) => item.groupId as string)
-      )
-    )
-    const orphan = segments.filter((item) => item.type === "tts" && !item.groupId && !item.audioId && !item.repeatOfUid).map((item) => item.uid)
-    void runQueue([...groupIds, ...orphan])
+    const queue = new Set<string>()
+    for (const item of segments) {
+      if (!isTtsSegment(item) || item.audioId || item.repeatOfUid || !item.text.trim()) continue
+      queue.add(shouldGenerateAsGroup(item) ? item.groupId as string : item.uid)
+    }
+    void runQueue([...queue])
   }
 
   function generateSelected() {
     if (selectedSegment?.type !== "tts") return
-    if (selectedSegment.groupId && !isQuestionRole(selectedSegment)) {
+    if (selectedSegment.groupId && shouldGenerateAsGroup(selectedSegment)) {
       void runQueue([selectedSegment.groupId])
       return
     }
@@ -1454,15 +1477,12 @@ export default function App() {
   }
 
   function retryFailed() {
-    const groupIds = Array.from(
-      new Set(
-        segments
-          .filter((item): item is TtsSegment => isTtsSegment(item) && Boolean(item.groupId) && item.status === "error" && !item.repeatOfUid)
-          .map((item) => item.groupId as string)
-      )
-    )
-    const orphan = segments.filter((item) => item.type === "tts" && item.status === "error" && !item.repeatOfUid && !item.groupId).map((item) => item.uid)
-    void runQueue([...groupIds, ...orphan])
+    const queue = new Set<string>()
+    for (const item of segments) {
+      if (!isTtsSegment(item) || item.status !== "error" || item.repeatOfUid) continue
+      queue.add(shouldGenerateAsGroup(item) ? item.groupId as string : item.uid)
+    }
+    void runQueue([...queue])
   }
 
   function stopGenerateAll() {
@@ -1615,6 +1635,15 @@ export default function App() {
     )
   }
 
+  function downloadExport(url: string, format = exportFormat) {
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `listening-audio.${format}`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
   async function composeAndDownload() {
     setComposeRunning(true)
     setComposeError("")
@@ -1655,7 +1684,10 @@ export default function App() {
       })
       const json = (await res.json()) as { url?: string; error?: string }
       if (!res.ok) throw new Error(json.error || "合成失败")
-      if (json.url) window.location.href = json.url
+      if (json.url) {
+        setLastExportUrl(json.url)
+        downloadExport(json.url, exportFormat)
+      }
     } catch (err) {
       setComposeError(err instanceof Error ? err.message : "合成失败")
     } finally {
@@ -1684,6 +1716,15 @@ export default function App() {
     }
   }, [segments])
 
+  const canCompose = segments.some((item) => item.type === "tts") &&
+    segments.every((item) => {
+      if (item.type !== "tts") return true
+      if (item.status === "skipped") return true
+      if (item.audioId) return true
+      if (!item.repeatOfUid) return false
+      return Boolean(segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId)))
+    })
+
   return (
     <div className="appRoot">
       <TopBar
@@ -1694,18 +1735,11 @@ export default function App() {
         onGenerateSelected={generateSelected}
         onRetryFailed={retryFailed}
         onStopGenerateAll={stopGenerateAll}
-        canCompose={
-          segments.some((item) => item.type === "tts") &&
-          segments.every((item) => {
-            if (item.type !== "tts") return true
-            if (item.status === "skipped") return true
-            if (item.audioId) return true
-            if (!item.repeatOfUid) return false
-            return Boolean(segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId)))
-          })
-        }
+        canCompose={canCompose}
         composeRunning={composeRunning}
         onCompose={composeAndDownload}
+        lastExportUrl={lastExportUrl}
+        onDownloadLast={() => lastExportUrl ? downloadExport(lastExportUrl, exportFormat) : undefined}
         exportFormat={exportFormat}
         onExportFormatChange={setExportFormat}
         onOpenSettings={() => setSettingsOpen(true)}
