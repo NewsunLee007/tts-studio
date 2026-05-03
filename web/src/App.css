@@ -1049,9 +1049,9 @@ textarea:focus {
   backdrop-filter: blur(22px) saturate(1.1);
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
   display: grid;
-  grid-template-columns: minmax(380px, 0.9fr) minmax(240px, 1fr) minmax(100px, 130px);
+  grid-template-columns: minmax(320px, 0.52fr) minmax(560px, 1.8fr) minmax(72px, 92px);
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   padding: 12px 16px;
 }
 
@@ -1163,11 +1163,13 @@ textarea:focus {
 
 .transportMetaRight {
   text-align: right;
+  justify-self: end;
+  min-width: 72px;
 }
 
 .transportProgress {
   position: relative;
-  height: 42px;
+  height: 50px;
   min-width: 0;
   border-radius: 16px;
 }
@@ -1176,7 +1178,7 @@ textarea:focus {
   position: absolute;
   left: 0;
   right: 0;
-  top: 25px;
+  top: 23px;
   height: 10px;
   border-radius: 999px;
   overflow: hidden;
@@ -1238,6 +1240,33 @@ textarea:focus {
 
 .transportSeek:disabled {
   cursor: not-allowed;
+}
+
+.transportProgressTime {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.transportProgressTime strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.transportProgressTime span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settingsLayer {

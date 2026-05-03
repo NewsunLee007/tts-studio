@@ -79,9 +79,10 @@ export type ExamTemplate = {
   grade: string
   examType: string
   includeIntroMusic: boolean
-  introMusicPreset: "warmup" | "bell" | "soft"
+  introMusicPreset: "warmup" | "bell" | "soft" | "piano"
   includeExamIntro: boolean
   includeQuestionNumbers: boolean
+  questionNumberStyle: "number" | "test"
   majorBreakMs: number
   minorBreakMs: number
   questionNumberGapMs: number
@@ -130,7 +131,7 @@ export type SilenceSegment = {
 export type MusicSegment = {
   uid: string
   type: "music"
-  presetId: "warmup" | "bell" | "soft"
+  presetId: "warmup" | "bell" | "soft" | "piano" | "ding"
   durationMs: number
   label?: string
   role?: SegmentRole

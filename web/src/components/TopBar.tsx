@@ -8,6 +8,7 @@ type Props = {
   onGenerateSelected: () => void
   onRetryFailed: () => void
   onStopGenerateAll: () => void
+  hasPendingGeneration: boolean
   canCompose: boolean
   composeRunning: boolean
   onCompose: () => void
@@ -50,8 +51,8 @@ export function TopBar(props: Props) {
 
         <div className="topbarActions">
           <div className="actionCluster">
-            <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning}>
-              {props.bulkRunning ? "队列中…" : "生成未完成"}
+            <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning || !props.hasPendingGeneration}>
+              {props.bulkRunning ? "队列中…" : props.hasPendingGeneration ? "生成未完成" : "全部已生成"}
             </button>
             <button className="btn" type="button" onClick={props.onGenerateSelected} disabled={props.bulkRunning}>
               生成选中

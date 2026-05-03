@@ -31,6 +31,10 @@ function mitigateModerationText(input: string) {
   return input.replace(/breakfast/gi, (value) => `${value.slice(0, 4)}\u200b${value.slice(4)}`)
 }
 
+function hasChineseText(input: string) {
+  return /[\u3400-\u9fff]/.test(input)
+}
+
 async function applyTempo(wavBytes: Buffer, speed: number) {
   if (!Number.isFinite(speed)) return wavBytes
   const clamped = Math.max(0.5, Math.min(2, speed))
@@ -176,8 +180,12 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
   const url = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`
 
   const text = mitigateModerationText(req.text || "")
+  const languageGuard = hasChineseText(req.text || "")
+    ? "MANDATORY LANGUAGE: The provided text contains Chinese. Speak the Chinese text in Mandarin Chinese exactly as written. Do not translate it into English. Do not paraphrase it."
+    : "MANDATORY LANGUAGE: Speak the provided text in the same language as written. Do not translate it."
   const systemText = [
     req.stylePrompt || "",
+    languageGuard,
     "Do not speak or read any instructions. Speak only the provided text content."
   ]
     .filter(Boolean)
@@ -202,6 +210,9 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
   if (!res.ok && isDeveloperInstructionDisabled(responseText || json?.error?.message || "")) {
     const retryBody = { ...body }
     delete retryBody.systemInstruction
+    if (hasChineseText(req.text || "")) {
+      retryBody.contents = [{ parts: [{ text: `Read aloud only the Chinese text below in Mandarin Chinese. Do not translate it into English.\n\n${mitigateModerationText(text)}` }] }]
+    }
     ;({ res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body: retryBody, timeoutMs: estimateTimeoutMs(text) }))
   }
   if (res.ok && json && isProhibitedContent(json)) {

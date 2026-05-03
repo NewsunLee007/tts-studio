@@ -125,10 +125,12 @@ export function SegmentEditor(props: Props) {
           <div className="cardGrid">
             <label className="field">
               <div className="label">音乐类型</div>
-              <select value={seg.presetId} onChange={(e) => props.onUpdate(seg.uid, { presetId: e.target.value as "warmup" | "bell" | "soft" })}>
+              <select value={seg.presetId} onChange={(e) => props.onUpdate(seg.uid, { presetId: e.target.value as "warmup" | "bell" | "soft" | "piano" | "ding" })}>
                 <option value="warmup">Warmup</option>
                 <option value="bell">Bell</option>
                 <option value="soft">Soft</option>
+                <option value="piano">Piano</option>
+                <option value="ding">Ding</option>
               </select>
             </label>
             <div className="durationGrid">

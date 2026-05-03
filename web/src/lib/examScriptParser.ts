@@ -10,11 +10,13 @@ export type ExamDraftSegment =
       directorNote?: string
     }
   | { type: "silence"; durationMs: number; label?: string; groupId?: string; directorNote?: string }
+  | { type: "music"; presetId: "ding"; durationMs: number; label?: string; groupId?: string }
 
 export type ExamParseOptions = {
   majorBreakMs?: number
   minorBreakMs?: number
   questionNumberGapMs?: number
+  questionNumberStyle?: "number" | "test"
 }
 
 type DialogueSpeakerTag = Exclude<SpeakerTag, "NARRATOR">
@@ -315,6 +317,10 @@ function mergeLines(input: string) {
   return merged
 }
 
+function questionMarkerText(number: number, style: "number" | "test") {
+  return `${style === "test" ? "Test" : "Number"} ${number}`
+}
+
 export function parseExamScript(input: string, options: ExamParseOptions = {}): ExamDraftSegment[] {
   const out: ExamDraftSegment[] = []
   const lines = mergeLines(input)
@@ -327,6 +333,7 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
   const majorBreakMs = Math.max(0, options.majorBreakMs ?? 10000)
   const minorBreakMs = Math.max(0, options.minorBreakMs ?? 5000)
   const questionNumberGapMs = Math.max(0, options.questionNumberGapMs ?? 1000)
+  const questionNumberStyle = options.questionNumberStyle === "test" ? "test" : "number"
 
   const pushSilence = (durationMs: number, label: string, groupId: string, note: string) => {
     if (durationMs > 0) out.push({ type: "silence", durationMs, label, groupId, directorNote: note })
@@ -485,15 +492,23 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
         const hadPreviousQuestion = flushBlock()
         if (hadPreviousQuestion) pushSilence(minorBreakMs, "小题间隔", currentPlan.id, "小题之间的全局间隔")
         activeBlock = startBlock(speaker.number, speaker.number)
+        const markerText = questionMarkerText(speaker.number, questionNumberStyle)
+        out.push({
+          type: "music",
+          presetId: "ding",
+          durationMs: 650,
+          label: "题号提示音",
+          groupId: `${activeBlock.groupId}::number`
+        })
         out.push({
           type: "tts",
           speakerTag: "NARRATOR",
-          text: `Number ${speaker.number}`,
-          label: `Number ${speaker.number}`,
+          text: markerText,
+          label: markerText,
           groupId: `${activeBlock.groupId}::number`,
           directorNote: "题号提示，短促、清楚、语调稳定。"
         })
-        pushSilence(questionNumberGapMs, "题号间隔", activeBlock.groupId, `Number ${speaker.number} 后短停顿`)
+        pushSilence(questionNumberGapMs, "题号间隔", activeBlock.groupId, `${markerText} 后短停顿`)
       } else {
         activeBlock = block || startBlock(currentPlan.qStart, currentPlan.qEnd, freeformGroupId)
       }

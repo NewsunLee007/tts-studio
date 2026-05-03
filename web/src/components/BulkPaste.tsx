@@ -12,6 +12,7 @@ type Props = {
   majorBreakMs: number
   minorBreakMs: number
   questionNumberGapMs: number
+  questionNumberStyle: "number" | "test"
 }
 
 const examPlaceholder = `可以直接粘贴完整听力文稿：中文题干说明、题号、对话/独白正文、选项和结束语都可以一次放进来。
@@ -49,9 +50,9 @@ export function BulkPaste(props: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const parsed = useMemo(() => {
-    if (mode === "exam") return parseExamScript(text, { majorBreakMs: props.majorBreakMs, minorBreakMs: props.minorBreakMs, questionNumberGapMs: props.questionNumberGapMs })
+    if (mode === "exam") return parseExamScript(text, { majorBreakMs: props.majorBreakMs, minorBreakMs: props.minorBreakMs, questionNumberGapMs: props.questionNumberGapMs, questionNumberStyle: props.questionNumberStyle })
     return parseSegments(text, mode)
-  }, [text, mode, props.majorBreakMs, props.minorBreakMs, props.questionNumberGapMs])
+  }, [text, mode, props.majorBreakMs, props.minorBreakMs, props.questionNumberGapMs, props.questionNumberStyle])
 
   return (
     <section className="rightCard">

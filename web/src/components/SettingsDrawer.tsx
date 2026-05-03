@@ -127,7 +127,7 @@ export function SettingsDrawer(props: Props) {
   const [showReserved, setShowReserved] = useState(false)
   const [draftSpeedMultiplier, setDraftSpeedMultiplier] = useState(props.speedMultiplier)
   const [englishWordsPerMinute, setEnglishWordsPerMinute] = useState(props.template.englishWordsPerMinute || 118)
-  const [chineseCharsPerMinute, setChineseCharsPerMinute] = useState(props.template.chineseCharsPerMinute || 210)
+  const [chineseCharsPerMinute, setChineseCharsPerMinute] = useState(props.template.chineseCharsPerMinute || 230)
   const [majorBreakSeconds, setMajorBreakSeconds] = useState(() => secondsFromMs(props.template.majorBreakMs, 10000))
   const [minorBreakSeconds, setMinorBreakSeconds] = useState(() => secondsFromMs(props.template.minorBreakMs, 5000))
   const [questionNumberGapSeconds, setQuestionNumberGapSeconds] = useState(() => secondsFromMs(props.template.questionNumberGapMs, 1000))
@@ -156,7 +156,7 @@ export function SettingsDrawer(props: Props) {
 
   useEffect(() => {
     setEnglishWordsPerMinute(props.template.englishWordsPerMinute || 118)
-    setChineseCharsPerMinute(props.template.chineseCharsPerMinute || 210)
+    setChineseCharsPerMinute(props.template.chineseCharsPerMinute || 230)
   }, [props.template.englishWordsPerMinute, props.template.chineseCharsPerMinute])
 
   useEffect(() => {
@@ -361,7 +361,14 @@ export function SettingsDrawer(props: Props) {
               </label>
               <label className="checkRow">
                 <input type="checkbox" checked={props.template.includeQuestionNumbers} onChange={(event) => props.onTemplateChange({ includeQuestionNumbers: event.target.checked })} />
-                <span>自动插入 Number 1 / Number 2</span>
+                <span>自动插入题号语音和提示音</span>
+              </label>
+              <label className="field">
+                <div className="label">题号播报格式</div>
+                <select value={props.template.questionNumberStyle} onChange={(event) => props.onTemplateChange({ questionNumberStyle: event.target.value === "test" ? "test" : "number" })}>
+                  <option value="number">Number 1 / Number 2</option>
+                  <option value="test">Test 1 / Test 2</option>
+                </select>
               </label>
               <label className="field">
                 <div className="label">导入音乐</div>
@@ -369,6 +376,7 @@ export function SettingsDrawer(props: Props) {
                   <option value="warmup">Warmup 电子提示音</option>
                   <option value="bell">Bell 考试铃声</option>
                   <option value="soft">Soft 柔和提示音</option>
+                  <option value="piano">Piano 钢琴曲导入</option>
                 </select>
               </label>
               <div className="speedCalibrator">

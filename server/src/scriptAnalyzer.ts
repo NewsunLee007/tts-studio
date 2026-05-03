@@ -9,9 +9,10 @@ export type ExamTemplate = {
   grade?: string
   examType?: string
   includeIntroMusic?: boolean
-  introMusicPreset?: "warmup" | "bell" | "soft"
+  introMusicPreset?: "warmup" | "bell" | "soft" | "piano"
   includeExamIntro?: boolean
   includeQuestionNumbers?: boolean
+  questionNumberStyle?: "number" | "test"
   majorBreakMs?: number
   minorBreakMs?: number
   questionNumberGapMs?: number
@@ -32,7 +33,7 @@ export type AnalyzedSegment =
       stylePresetId: StylePresetId
     }
   | { type: "silence"; durationMs: number; label?: string; groupId?: string }
-  | { type: "music"; presetId: "warmup" | "bell" | "soft"; durationMs: number; label?: string }
+  | { type: "music"; presetId: "warmup" | "bell" | "soft" | "piano" | "ding"; durationMs: number; label?: string; groupId?: string }
 
 type SpeakerTag = "M" | "W" | "A" | "B" | "NARRATOR"
 type DialogueSpeakerTag = Exclude<SpeakerTag, "NARRATOR">
@@ -40,6 +41,7 @@ type DialogueSpeakerTag = Exclude<SpeakerTag, "NARRATOR">
 type DraftSegment =
   | { type: "tts"; speakerTag: SpeakerTag; text: string; label?: string; groupId?: string; directorNote?: string }
   | { type: "silence"; durationMs: number; label?: string; groupId?: string; directorNote?: string }
+  | { type: "music"; presetId: "warmup" | "bell" | "soft" | "piano" | "ding"; durationMs: number; label?: string; groupId?: string }
 
 type SpeakerLine = {
   number?: number
@@ -335,7 +337,11 @@ function mergeLines(input: string) {
   return merged
 }
 
-function parseStructuredExamScript(input: string, includeQuestionNumbers: boolean, options: { majorBreakMs?: number; minorBreakMs?: number; questionNumberGapMs?: number } = {}): DraftSegment[] {
+function questionMarkerText(number: number, style: "number" | "test") {
+  return `${style === "test" ? "Test" : "Number"} ${number}`
+}
+
+function parseStructuredExamScript(input: string, includeQuestionNumbers: boolean, options: { majorBreakMs?: number; minorBreakMs?: number; questionNumberGapMs?: number; questionNumberStyle?: "number" | "test" } = {}): DraftSegment[] {
   const out: DraftSegment[] = []
   const lines = mergeLines(input)
   let currentPlan = defaultPlan
@@ -347,6 +353,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
   const majorBreakMs = Math.max(0, options.majorBreakMs ?? 10000)
   const minorBreakMs = Math.max(0, options.minorBreakMs ?? 5000)
   const questionNumberGapMs = Math.max(0, options.questionNumberGapMs ?? 1000)
+  const questionNumberStyle = options.questionNumberStyle === "test" ? "test" : "number"
 
   const pushSilence = (durationMs: number, label: string, groupId: string, note: string) => {
     if (durationMs > 0) out.push({ type: "silence", durationMs, label, groupId, directorNote: note })
@@ -507,15 +514,23 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
         activeBlock = startBlock(speaker.number, speaker.number)
         if (includeQuestionNumbers) {
           const numberGroupId = `${activeBlock.groupId}::number`
+          const markerText = questionMarkerText(speaker.number, questionNumberStyle)
+          out.push({
+            type: "music",
+            presetId: "ding",
+            durationMs: 650,
+            label: "题号提示音",
+            groupId: numberGroupId
+          })
           out.push({
             type: "tts",
             speakerTag: "NARRATOR",
-            text: `Number ${speaker.number}`,
-            label: `Number ${speaker.number}`,
+            text: markerText,
+            label: markerText,
             groupId: numberGroupId,
             directorNote: "题号提示，短促、清楚、语调稳定。"
           })
-          pushSilence(questionNumberGapMs, "题号间隔", activeBlock.groupId, `Number ${speaker.number} 后短停顿`)
+          pushSilence(questionNumberGapMs, "题号间隔", activeBlock.groupId, `${markerText} 后短停顿`)
         }
       } else {
         activeBlock = block || startBlock(currentPlan.qStart, currentPlan.qEnd, freeformGroupId)
@@ -555,9 +570,10 @@ function speakerRole(tag?: string): "male" | "female" | "narrator" | "neutral" {
 }
 
 function toAnalyzedSegment(item: DraftSegment): AnalyzedSegment {
+  if (item.type === "music") return { type: "music", presetId: item.presetId, durationMs: item.durationMs, label: item.label, groupId: item.groupId }
   if (item.type === "silence") return { type: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId }
 
-  const question = /^Number\s+\d+/i.test(item.text.trim())
+  const question = /^(?:Number|Test)\s+\d+/i.test(item.text.trim())
   const role = question ? "question" : item.speakerTag === "NARRATOR" && hasChinese(item.text) ? "intro" : speakerRole(item.speakerTag)
   const stylePresetId: StylePresetId = question ? "question_marker" : role === "narrator" ? "teacher" : role === "intro" ? "exam_host" : "dialogue"
   const pacePreset: PacePresetId = role === "narrator" || role === "intro" || role === "question" ? "exam_slow" : "exam_standard"
@@ -587,7 +603,8 @@ export function analyzeExamScript(input: string, template: ExamTemplate): Analyz
   const segments: AnalyzedSegment[] = []
 
   if (template.includeIntroMusic !== false) {
-    segments.push({ type: "music", presetId: template.introMusicPreset || "warmup", durationMs: 3500, label: "导入音乐" })
+    const introPreset = template.introMusicPreset || "warmup"
+    segments.push({ type: "music", presetId: introPreset, durationMs: introPreset === "piano" ? 5000 : 3500, label: introPreset === "piano" ? "钢琴曲导入音乐" : "导入音乐" })
   }
 
   if (template.includeExamIntro !== false) {
@@ -609,7 +626,8 @@ export function analyzeExamScript(input: string, template: ExamTemplate): Analyz
   const draft = parseStructuredExamScript(input, template.includeQuestionNumbers !== false, {
     majorBreakMs: template.majorBreakMs,
     minorBreakMs: template.minorBreakMs,
-    questionNumberGapMs: template.questionNumberGapMs
+    questionNumberGapMs: template.questionNumberGapMs,
+    questionNumberStyle: template.questionNumberStyle
   })
   return [...segments, ...draft.map(toAnalyzedSegment)]
 }

@@ -9,6 +9,7 @@ import type { ExamDraftSegment } from "./lib/examScriptParser"
 import type {
   EnglishAccentId,
   ExamTemplate,
+  MusicSegment,
   PacePreset,
   PacePresetId,
   ProviderCatalogResponse,
@@ -140,11 +141,12 @@ const defaultTemplate: ExamTemplate = {
   introMusicPreset: "warmup",
   includeExamIntro: true,
   includeQuestionNumbers: true,
+  questionNumberStyle: "number",
   majorBreakMs: 10000,
   minorBreakMs: 5000,
   questionNumberGapMs: 1000,
   englishWordsPerMinute: 118,
-  chineseCharsPerMinute: 210
+  chineseCharsPerMinute: 230
 }
 
 function safeGetItem(key: string) {
@@ -258,6 +260,11 @@ function estimateSeconds(segments: Segment[]) {
   }, 0)
 }
 
+function estimatePreviewItemMs(item: PreviewItem) {
+  if (item.kind === "silence" || item.kind === "music") return Math.max(0, item.durationMs)
+  return Math.max(900, (item.estimatedSeconds || 1) * 1000)
+}
+
 function formatTime(seconds: number) {
   const safe = Math.max(0, Math.round(seconds))
   const min = Math.floor(safe / 60)
@@ -304,7 +311,7 @@ function hasChineseText(text: string) {
 
 function targetSpeedForText(text: string, template: ExamTemplate) {
   if (hasChineseText(text)) {
-    const target = Number.isFinite(template.chineseCharsPerMinute) ? template.chineseCharsPerMinute : 210
+    const target = Number.isFinite(template.chineseCharsPerMinute) ? template.chineseCharsPerMinute : 230
     return Math.max(0.5, Math.min(2, target / 250))
   }
   const target = Number.isFinite(template.englishWordsPerMinute) ? template.englishWordsPerMinute : 118
@@ -313,12 +320,29 @@ function targetSpeedForText(text: string, template: ExamTemplate) {
 
 function languageRateDirective(text: string, template: ExamTemplate) {
   if (hasChineseText(text)) {
-    const cpm = Number.isFinite(template.chineseCharsPerMinute) ? template.chineseCharsPerMinute : 210
+    const cpm = Number.isFinite(template.chineseCharsPerMinute) ? template.chineseCharsPerMinute : 230
     return `Mandarin Chinese delivery target: approximately ${cpm} Chinese characters per minute. Use standard Putonghua, CCTV News anchor style, clear tones, logical phrase grouping, authoritative yet warm.`
   }
   const wpm = Number.isFinite(template.englishWordsPerMinute) ? template.englishWordsPerMinute : 118
   return `English delivery target: approximately ${wpm} words per minute. Use Standard British RP, professional warm exam-listening tone, clear word endings, and distinct punctuation pauses.`
 }
+
+function requestLanguageType(text: string, provider: ProviderId, languageType: string, accentLocale: string) {
+  if (hasChineseText(text)) return "zh-CN"
+  if (provider === "dashscope") return languageType
+  return accentLocale === "en" ? undefined : accentLocale
+}
+
+function musicAssetUrl(presetId: MusicSegment["presetId"]) {
+  if (presetId === "ding") return "/media/ding.mp3"
+  if (presetId === "piano") return "/media/piano-intro.mp3"
+  return ""
+}
+
+type PreviewItem =
+  | { kind: "silence"; durationMs: number; label?: string; groupId?: string }
+  | { kind: "music"; presetId: MusicSegment["presetId"]; durationMs: number; label?: string; groupId?: string }
+  | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string; estimatedSeconds?: number }
 
 export default function App() {
   const [providers, setProviders] = useState<ProviderConfig[]>([])
@@ -443,11 +467,6 @@ export default function App() {
     return normalizeGeminiDialogueText(cleanExamAudioText(lines.join("\n")))
   }, [provider, selectedSegment, segments])
 
-  type PreviewItem =
-    | { kind: "silence"; durationMs: number; label?: string; groupId?: string }
-    | { kind: "music"; presetId: "warmup" | "bell" | "soft"; durationMs: number; label?: string; groupId?: string }
-    | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string }
-
   const previewItems = useMemo<PreviewItem[]>(() => {
     const out: PreviewItem[] = []
     for (const item of segments) {
@@ -456,7 +475,7 @@ export default function App() {
       else if (item.type === "tts") {
         const source = item.repeatOfUid ? segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid) : null
         const url = item.audioUrl || source?.audioUrl
-        if (url) out.push({ kind: "audio", url, label: item.label, groupId: item.groupId, role: item.role })
+        if (url) out.push({ kind: "audio", url, label: item.label, groupId: item.groupId, role: item.role, estimatedSeconds: estimateSeconds([item]) })
       }
     }
     return out
@@ -467,7 +486,7 @@ export default function App() {
     return previewItems.flatMap((item, index) => {
       const raw = item.groupId || item.label || ""
       const range = raw.match(/q-(\d+)(?:-(\d+))?/) || item.label?.match(/第\s*(\d+)(?:\s*(?:至|到|-)\s*(\d+))?\s*题/)
-      const label = range ? range[1] : /^Number\s+\d+/i.test(item.label || "") ? (item.label || "").replace(/^Number\s+/i, "") : ""
+      const label = range ? range[1] : /^(?:Number|Test)\s+\d+/i.test(item.label || "") ? (item.label || "").replace(/^(?:Number|Test)\s+/i, "") : ""
       if (!label) return []
       const key = label
       if (seen.has(key)) return []
@@ -476,9 +495,14 @@ export default function App() {
     })
   }, [previewItems])
 
-  const previewProgress = previewItems.length
-    ? Math.min(100, Math.max(0, ((Math.min(previewIndex, previewItems.length - 1) + previewItemProgress) / previewItems.length) * 100))
-    : 0
+  const totalPreviewMs = useMemo(() => previewItems.reduce((total, item) => total + estimatePreviewItemMs(item), 0), [previewItems])
+  const previewElapsedMs = useMemo(() => {
+    if (!previewItems.length) return 0
+    const index = Math.max(0, Math.min(previewIndex, previewItems.length - 1))
+    const completed = previewItems.slice(0, index).reduce((total, item) => total + estimatePreviewItemMs(item), 0)
+    return Math.min(totalPreviewMs, completed + estimatePreviewItemMs(previewItems[index]) * Math.max(0, Math.min(1, previewItemProgress)))
+  }, [previewIndex, previewItemProgress, previewItems, totalPreviewMs])
+  const previewProgress = totalPreviewMs ? Math.min(100, Math.max(0, (previewElapsedMs / totalPreviewMs) * 100)) : 0
 
   useEffect(() => {
     if (!providerConfig) return
@@ -744,8 +768,56 @@ export default function App() {
     })
   }
 
-  async function playPreviewMusic(presetId: "warmup" | "bell" | "soft", durationMs: number, runId: number) {
+  async function playPreviewMusic(presetId: MusicSegment["presetId"], durationMs: number, runId: number) {
     const duration = Math.max(250, Math.min(durationMs, 30000))
+    const assetUrl = musicAssetUrl(presetId)
+    if (assetUrl) {
+      const audio = audioRef.current
+      if (!audio) {
+        await delay(duration)
+        return
+      }
+      audio.pause()
+      audio.src = assetUrl
+      audio.currentTime = 0
+      try {
+        await audio.play()
+      } catch {
+        await delay(duration)
+        return
+      }
+      const startedAt = performance.now()
+      await new Promise<void>((resolve) => {
+        const cleanup = () => {
+          window.clearInterval(timer)
+          audio.removeEventListener("ended", onEnd)
+          audio.removeEventListener("error", onEnd)
+        }
+        const onEnd = () => {
+          cleanup()
+          setPreviewItemProgress(1)
+          resolve()
+        }
+        const timer = window.setInterval(() => {
+          if (previewStopRef.current || previewRunIdRef.current !== runId) {
+            cleanup()
+            resolve()
+            return
+          }
+          const elapsed = performance.now() - startedAt
+          setPreviewItemProgress(Math.min(1, elapsed / duration))
+          if (elapsed >= duration) {
+            audio.pause()
+            cleanup()
+            resolve()
+          }
+        }, 80)
+        audio.addEventListener("ended", onEnd)
+        audio.addEventListener("error", onEnd)
+      })
+      return
+    }
+
     const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!AudioContextCtor) {
       await delay(duration)
@@ -983,7 +1055,7 @@ export default function App() {
         credentials,
         baseUrl,
         model: modelToUse,
-        languageType: provider === "dashscope" ? languageType : accentOption.locale === "en" ? undefined : accentOption.locale,
+        languageType: requestLanguageType(text, provider, languageType, accentOption.locale),
         text,
         voice: seg.voiceId || voiceForRole(seg.role) || voiceId,
         stylePresetId: seg.stylePresetId || stylePresetId,
@@ -1176,7 +1248,7 @@ export default function App() {
             credentials,
             baseUrl,
             model: modelId,
-            languageType: provider === "dashscope" ? languageType : accentOption.locale === "en" ? undefined : accentOption.locale,
+            languageType: requestLanguageType(combinedText, provider, languageType, accentOption.locale),
             text: combinedText,
             voice: question.voiceId || container.voiceId || voiceId,
             stylePresetId: question.stylePresetId || container.stylePresetId || stylePresetId,
@@ -1260,7 +1332,7 @@ export default function App() {
           credentials,
           baseUrl,
           model: modelId,
-          languageType: provider === "dashscope" ? languageType : accentOption.locale === "en" ? undefined : accentOption.locale,
+          languageType: requestLanguageType(combinedText, provider, languageType, accentOption.locale),
           text: combinedText,
           voice: container.voiceId || voiceId,
           stylePresetId: container.stylePresetId || stylePresetId,
@@ -1390,7 +1462,7 @@ export default function App() {
           credentials,
           baseUrl,
           model: modelToUse,
-          languageType: provider === "dashscope" ? languageType : accentOption.locale === "en" ? undefined : accentOption.locale,
+          languageType: requestLanguageType(seg.text, provider, languageType, accentOption.locale),
           text: seg.text,
           voice: seg.voiceId || voiceId,
           stylePresetId: seg.stylePresetId || stylePresetId,
@@ -1545,7 +1617,7 @@ export default function App() {
           credentials,
           baseUrl,
           model: modelId,
-          languageType: provider === "dashscope" ? languageType : accentOption.locale === "en" ? undefined : accentOption.locale,
+          languageType: requestLanguageType(sampleText, provider, languageType, accentOption.locale),
           text: sampleText,
           voice: voiceId,
           stylePresetId: "exam_host",
@@ -1680,7 +1752,7 @@ export default function App() {
       const payloadSegments: Array<
         | { type: "tts"; id: string }
         | { type: "silence"; durationMs: number }
-        | { type: "music"; presetId?: "warmup" | "bell" | "soft"; durationMs?: number }
+        | { type: "music"; presetId?: MusicSegment["presetId"]; durationMs?: number }
       > = []
       for (const item of segments) {
         if (item.type === "silence") {
@@ -1743,6 +1815,12 @@ export default function App() {
       if (!item.repeatOfUid) return false
       return Boolean(segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId)))
     })
+  const hasPendingGeneration = segments.some((item) => {
+    if (item.type !== "tts") return false
+    if (!item.text.trim() || item.status === "skipped" || item.audioId) return false
+    if (!item.repeatOfUid) return true
+    return !segments.some((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId))
+  })
 
   return (
     <div className="appRoot">
@@ -1762,6 +1840,7 @@ export default function App() {
         exportFormat={exportFormat}
         onExportFormatChange={setExportFormat}
         onOpenSettings={() => setSettingsOpen(true)}
+        hasPendingGeneration={hasPendingGeneration}
         stats={stats}
       />
 
@@ -1772,6 +1851,7 @@ export default function App() {
             majorBreakMs={template.majorBreakMs}
             minorBreakMs={template.minorBreakMs}
             questionNumberGapMs={template.questionNumberGapMs}
+            questionNumberStyle={template.questionNumberStyle}
             onAnalyze={analyzeScript}
             onApply={(parsed, mode) => {
             const mapped: Segment[] = linkRepeatedAudioSegments(parsed.map((item) => {
@@ -1779,10 +1859,12 @@ export default function App() {
               const itemDirectorNote = "directorNote" in item ? item.directorNote : undefined
               if (item.type === "silence")
                 return { uid: uid(), type: "silence", durationMs: item.durationMs, label: item.label, role: "neutral" as const, groupId: itemGroupId }
+              if (item.type === "music")
+                return { uid: uid(), type: "music", presetId: item.presetId, durationMs: item.durationMs, label: item.label || "提示音", role: "music" as const }
               // 尝试从 ExamDraftSegment 类型获取 speakerTag
               const examItem = item as ExamDraftSegment
               const speakerTag = "speakerTag" in examItem && typeof examItem.speakerTag === "string" ? examItem.speakerTag : ""
-              const isQuestionMarker = speakerTag === "NARRATOR" && /^Number\s+\d+/i.test(item.text.trim())
+              const isQuestionMarker = speakerTag === "NARRATOR" && /^(?:Number|Test)\s+\d+/i.test(item.text.trim())
               const inferred =
                 speakerTag === "M" || speakerTag === "A" || item.label === "M" || item.label === "A"
                   ? ({ role: "male" as const, label: speakerTag || item.label || "M" })
@@ -1894,16 +1976,6 @@ export default function App() {
               </div>
             ) : null}
           </div>
-          <div className="transportStatus">
-            <strong>{stats.totalTime}</strong>
-            <span>
-              {previewError
-                ? previewError
-                : previewing
-                  ? `播放进度 ${previewIndex + 1}/${previewItems.length}`
-                  : "已生成音频"}
-            </span>
-          </div>
         </div>
         <div className="transportProgress">
           <div className="transportMarkerLayer">
@@ -1923,6 +1995,10 @@ export default function App() {
           <div className="transportTrack">
             <div className="transportFill" style={{ width: `${previewProgress}%` }} />
           </div>
+          <div className="transportProgressTime">
+            <span>{previewError ? previewError : previewing ? `播放 ${previewIndex + 1}/${previewItems.length}` : "预览进度"}</span>
+            <strong>{formatTime(previewElapsedMs / 1000)} / {stats.totalTime}</strong>
+          </div>
           <input
             className="transportSeek"
             type="range"
@@ -1936,8 +2012,8 @@ export default function App() {
           />
         </div>
         <div className="transportMeta transportMetaRight">
-          <strong>{formatTime(estimateSeconds(segments))}</strong>
-          <span>{stats.silence} 个停顿</span>
+          <strong>{stats.silence}</strong>
+          <span>个停顿</span>
         </div>
       </footer>
 

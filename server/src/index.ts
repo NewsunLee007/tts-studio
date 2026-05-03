@@ -59,10 +59,12 @@ type ComposeBody = {
   segments: Array<
     | { type: "tts"; id: string }
     | { type: "silence"; durationMs: number }
-    | { type: "music"; presetId?: "warmup" | "bell" | "soft"; durationMs?: number }
+    | { type: "music"; presetId?: "warmup" | "bell" | "soft" | "piano" | "ding"; durationMs?: number }
   >
   format?: "mp3" | "wav"
 }
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url))
 
 type AnalyzeBody = {
   text?: string
@@ -93,6 +95,18 @@ function providerConfig(provider: ProviderId) {
 
 function uniqueById<T extends { id: string }>(items: T[]) {
   return Array.from(new Map(items.map((item) => [item.id, item])).values())
+}
+
+async function firstExistingPath(paths: string[]) {
+  for (const item of paths) {
+    try {
+      await fs.access(item)
+      return item
+    } catch {
+      // try the next candidate path
+    }
+  }
+  return ""
 }
 
 function inferGoogleGender(name: string): "male" | "female" | "neutral" {
@@ -227,7 +241,7 @@ function stableStyleContract(body: Partial<TtsRequestBody>, presetPrompt?: strin
       : "LANGUAGE OVERRIDE: This segment is English. Speak in natural English. Do not read English with Chinese pronunciation.",
     "Use a restrained exam-listening delivery: clear consonants, stable volume, controlled pauses, no dramatic acting, no exaggerated emotion.",
     isChinese
-      ? "CHINESE DEFAULT: You are a professional native Mandarin broadcaster in CCTV News anchor style recording educational materials for middle school students. Accent: Standard Putonghua, Level 1-A quality, no foreign accent and no regional dialect. Articulation: zi zheng qiang yuan, full clear tones, natural audible neutral tones, clear zh/ch/sh/r without excessive erhua. Speed: measured and steady, approximately 200-220 Chinese characters per minute. Rhythm: logical phrase-group pauses, authoritative yet warm."
+      ? "CHINESE DEFAULT: You are a professional native Mandarin broadcaster in CCTV News anchor style recording educational materials for middle school students. Accent: Standard Putonghua, Level 1-A quality, no foreign accent and no regional dialect. Articulation: zi zheng qiang yuan, full clear tones, natural audible neutral tones, clear zh/ch/sh/r without excessive erhua. Speed: measured and steady, approximately 230 Chinese characters per minute. Rhythm: logical phrase-group pauses, authoritative yet warm."
       : "ENGLISH DEFAULT: You are a professional voice actor recording English listening test materials for 9th-grade ESL students in China. Tone: professional, warm, authoritative but approachable. Accent: Standard British RP. Speed: measured educational pace, approximately 110-125 words per minute. Prioritize clear enunciation, strict word endings (ed, s, t, d), and distinct punctuation pauses.",
     !isChinese && presetPrompt ? `Preset: ${presetPrompt}` : "",
     body.directorNote ? `Segment role note: ${body.directorNote}` : "",
@@ -306,7 +320,39 @@ async function writeAudioToMp3(id: string, audio: TtsAudio) {
 async function makeMusicSegment(dir: string, index: number, presetId: string, durationMs: number) {
   const dst = path.join(dir, `${String(index).padStart(4, "0")}.wav`)
   const durationSec = Math.min(Math.max(durationMs / 1000, 0.5), 30)
+  const assetName = presetId === "ding" ? "ding.mp3" : presetId === "piano" ? "piano-intro.mp3" : ""
+  if (assetName) {
+    const candidates = [
+      path.join(moduleDir, "assets", assetName),
+      path.resolve("server/src/assets", assetName),
+      path.resolve("server/dist/assets", assetName)
+    ]
+    const src = await firstExistingPath(candidates)
+    if (src) {
+      const fadeOutStart = Math.max(0, durationSec - 0.35)
+      await runFfmpeg([
+        "-y",
+        "-stream_loop",
+        "-1",
+        "-i",
+        src,
+        "-t",
+        durationSec.toFixed(3),
+        "-af",
+        `afade=t=in:st=0:d=0.04,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=0.25,volume=${presetId === "ding" ? "0.92" : "0.72"}`,
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-c:a",
+        "pcm_s16le",
+        dst
+      ])
+      return dst
+    }
+  }
   const freq = presetId === "bell" ? "880" : presetId === "soft" ? "392" : "523"
+  const fadeOutStart = Math.max(0, durationSec - 0.5)
   await runFfmpeg([
     "-y",
     "-f",
@@ -316,7 +362,7 @@ async function makeMusicSegment(dir: string, index: number, presetId: string, du
     "-t",
     String(durationSec),
     "-af",
-    "afade=t=in:st=0:d=0.25,afade=t=out:st=2.8:d=0.5,volume=0.18",
+    `afade=t=in:st=0:d=0.25,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=0.5,volume=0.18`,
     "-ac",
     "2",
     "-c:a",
