@@ -336,6 +336,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [previewIndex, setPreviewIndex] = useState(0)
+  const [previewItemProgress, setPreviewItemProgress] = useState(0)
   const [previewError, setPreviewError] = useState("")
   const [pastePaneWidth, setPastePaneWidth] = useState(520)
   const [exportFormat, setExportFormat] = useState<"mp3" | "wav">(() => (safeGetItem("tts_export_format") === "wav" ? "wav" : "mp3"))
@@ -427,20 +428,40 @@ export default function App() {
     return normalizeGeminiDialogueText(cleanExamAudioText(lines.join("\n")))
   }, [provider, selectedSegment, segments])
 
-  type PreviewItem = { kind: "silence"; durationMs: number } | { kind: "audio"; url: string }
+  type PreviewItem =
+    | { kind: "silence"; durationMs: number; label?: string; groupId?: string }
+    | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string }
 
   const previewItems = useMemo<PreviewItem[]>(() => {
     const out: PreviewItem[] = []
     for (const item of segments) {
-      if (item.type === "silence") out.push({ kind: "silence", durationMs: item.durationMs })
+      if (item.type === "silence") out.push({ kind: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId })
       else if (item.type === "tts") {
         const source = item.repeatOfUid ? segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid) : null
         const url = item.audioUrl || source?.audioUrl
-        if (url) out.push({ kind: "audio", url })
+        if (url) out.push({ kind: "audio", url, label: item.label, groupId: item.groupId, role: item.role })
       }
     }
     return out
   }, [segments])
+
+  const previewMarkers = useMemo(() => {
+    const seen = new Set<string>()
+    return previewItems.flatMap((item, index) => {
+      const raw = item.groupId || item.label || ""
+      const range = raw.match(/q-(\d+)(?:-(\d+))?/) || item.label?.match(/第\s*(\d+)(?:\s*(?:至|到|-)\s*(\d+))?\s*题/)
+      const label = range ? (range[2] && range[2] !== range[1] ? `${range[1]}-${range[2]}` : range[1]) : /^Number\s+\d+/i.test(item.label || "") ? (item.label || "").replace(/^Number\s+/i, "") : ""
+      if (!label) return []
+      const key = raw || label
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [{ index, label }]
+    })
+  }, [previewItems])
+
+  const previewProgress = previewItems.length
+    ? Math.min(100, Math.max(0, ((Math.min(previewIndex, previewItems.length - 1) + previewItemProgress) / previewItems.length) * 100))
+    : 0
 
   useEffect(() => {
     if (!providerConfig) return
@@ -600,6 +621,7 @@ export default function App() {
     previewStopRef.current = true
     setPreviewing(false)
     setPreviewIndex(0)
+    setPreviewItemProgress(0)
     setPreviewError("")
     setBulkRunning(false)
     setBulkProgressText("")
@@ -620,6 +642,7 @@ export default function App() {
     setPreviewError("")
     setPreviewing(true)
     setPreviewIndex(startIndex)
+    setPreviewItemProgress(0)
 
     const playAt = async (idx: number): Promise<void> => {
       if (previewStopRef.current || previewRunIdRef.current !== runId) return
@@ -629,9 +652,18 @@ export default function App() {
         return
       }
       setPreviewIndex(idx)
+      setPreviewItemProgress(0)
 
       if (item.kind === "silence") {
-        await delay(Math.max(0, item.durationMs))
+        const startedAt = performance.now()
+        const duration = Math.max(0, item.durationMs)
+        const timer = window.setInterval(() => {
+          if (previewStopRef.current || previewRunIdRef.current !== runId) return
+          setPreviewItemProgress(duration ? Math.min(1, (performance.now() - startedAt) / duration) : 1)
+        }, 120)
+        await delay(duration)
+        window.clearInterval(timer)
+        setPreviewItemProgress(1)
         return playAt(idx + 1)
       }
 
@@ -651,18 +683,28 @@ export default function App() {
       }
 
       await new Promise<void>((resolve) => {
+        const onTimeUpdate = () => {
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            setPreviewItemProgress(Math.min(1, Math.max(0, audio.currentTime / audio.duration)))
+          }
+        }
         const onEnd = () => {
           audio.removeEventListener("ended", onEnd)
           audio.removeEventListener("error", onError)
+          audio.removeEventListener("timeupdate", onTimeUpdate)
+          setPreviewItemProgress(1)
           resolve()
         }
         const onError = () => {
           audio.removeEventListener("ended", onEnd)
           audio.removeEventListener("error", onError)
+          audio.removeEventListener("timeupdate", onTimeUpdate)
           resolve()
         }
         audio.addEventListener("ended", onEnd)
         audio.addEventListener("error", onError)
+        audio.addEventListener("timeupdate", onTimeUpdate)
+        onTimeUpdate()
       })
 
       return playAt(idx + 1)
@@ -679,6 +721,7 @@ export default function App() {
     previewRunIdRef.current += 1
     previewStopRef.current = true
     setPreviewing(false)
+    setPreviewItemProgress(0)
     const audio = audioRef.current
     if (audio) {
       audio.pause()
@@ -689,6 +732,7 @@ export default function App() {
   function seekPreview(index: number) {
     const nextIndex = Math.max(0, Math.min(Math.max(0, previewItems.length - 1), index))
     setPreviewIndex(nextIndex)
+    setPreviewItemProgress(0)
     if (!previewing) return
     stopPreview()
     window.setTimeout(() => {
@@ -1725,10 +1769,24 @@ export default function App() {
             </span>
           </div>
         </div>
-        <div className="waveRail">
-          {Array.from({ length: 42 }).map((_, index) => (
-            <span key={index} style={{ height: `${18 + ((index * 7) % 28)}px` }} />
-          ))}
+        <div className="transportProgress">
+          <div className="transportMarkerLayer">
+            {previewMarkers.map((marker) => (
+              <button
+                className="transportMarker"
+                key={`${marker.index}-${marker.label}`}
+                type="button"
+                style={{ left: `${previewItems.length <= 1 ? 0 : (marker.index / (previewItems.length - 1)) * 100}%` }}
+                onClick={() => seekPreview(marker.index)}
+                tabIndex={-1}
+              >
+                {marker.label}
+              </button>
+            ))}
+          </div>
+          <div className="transportTrack">
+            <div className="transportFill" style={{ width: `${previewProgress}%` }} />
+          </div>
           <input
             className="transportSeek"
             type="range"

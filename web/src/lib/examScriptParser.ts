@@ -48,6 +48,11 @@ type DialogueBlock = {
   lines: Array<{ speakerTag: SpeakerTag; text: string; label: string }>
 }
 
+type AudioTextChunk = {
+  text: string
+  language: "zh" | "en" | "mixed"
+}
+
 const defaultPlan: SectionPlan = {
   id: "exam",
   label: "听力材料",
@@ -135,6 +140,47 @@ function isSectionLine(line: string) {
 
 function isManualBoundary(line: string) {
   return /^(?:-{3,}|={3,}|#{3,})$/.test(line.trim())
+}
+
+function hasChinese(line: string) {
+  return /[\u3400-\u9fff]/.test(line)
+}
+
+function hasEnglish(line: string) {
+  return /[A-Za-z]/.test(line)
+}
+
+function languageOf(line: string): AudioTextChunk["language"] {
+  const zh = hasChinese(line)
+  const en = hasEnglish(line)
+  if (zh && !en) return "zh"
+  if (en && !zh) return "en"
+  return "mixed"
+}
+
+function isClosingAnnouncement(line: string) {
+  return /(?:听力(?:测试|部分|考试)?到此结束|听力材料播放完毕|This\s+is\s+the\s+end\s+of\s+the\s+listening\s+test)/i.test(line.trim())
+}
+
+function splitMixedLanguageAudioLine(line: string): AudioTextChunk[] {
+  const text = line.trim()
+  if (!text) return []
+  if (!hasChinese(text) || !hasEnglish(text)) return [{ text, language: languageOf(text) }]
+
+  const sentences = text.match(/[^。！？!?；;.]+[。！？!?；;.]?/g) || [text]
+  const chunks: AudioTextChunk[] = []
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim()
+    if (!trimmed) continue
+    const language = languageOf(trimmed)
+    const last = chunks[chunks.length - 1]
+    if (last && last.language === language && !isClosingAnnouncement(trimmed)) {
+      last.text = `${last.text} ${trimmed}`.trim()
+    } else {
+      chunks.push({ text: trimmed, language })
+    }
+  }
+  return chunks
 }
 
 function isChoiceLine(line: string) {
@@ -277,6 +323,7 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
   let block: DialogueBlock | null = null
   let freeformIndex = 0
   let freeformGroupId = currentPlan.id
+  let narrationIndex = 0
   const majorBreakMs = Math.max(0, options.majorBreakMs ?? 10000)
   const minorBreakMs = Math.max(0, options.minorBreakMs ?? 5000)
   const questionNumberGapMs = Math.max(0, options.questionNumberGapMs ?? 1000)
@@ -357,6 +404,43 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
     return nextBlock
   }
 
+  const pushStandaloneNarration = (text: string, label = "旁白", groupId?: string, directorNote?: string) => {
+    narrationIndex += 1
+    out.push({
+      type: "tts",
+      speakerTag: "NARRATOR",
+      text,
+      label,
+      groupId: groupId || `${currentPlan.id}::narration-${narrationIndex}`,
+      directorNote: directorNote || "考试旁白，清晰说明要求，避免口语化。"
+    })
+  }
+
+  const pushFreeformLine = (text: string, label = "旁白") => {
+    for (const chunk of splitMixedLanguageAudioLine(text)) {
+      const range = parseQuestionRange(chunk.text)
+      if (isClosingAnnouncement(chunk.text)) {
+        flushBlock()
+        pushStandaloneNarration(chunk.text, "考试结束", `${currentPlan.id}::closing`, "考试结束提示，中文标准普通话，简短、清楚、不要与前一段英文连读。")
+        continue
+      }
+      if (currentPlan.mode === "monologue" && chunk.language === "en") {
+        const activeBlock = block || startBlock(currentPlan.qStart, currentPlan.qEnd, `${currentPlan.id}-monologue`)
+        activeBlock.lines.push({ speakerTag: "NARRATOR", text: chunk.text, label: "旁白" })
+        continue
+      }
+      flushBlock()
+      pushStandaloneNarration(
+        chunk.text,
+        formatRange(range.start, range.end) || label,
+        groupIdFor(range.start, range.end, `${currentPlan.id}::narration-${narrationIndex + 1}`),
+        chunk.language === "zh"
+          ? "中文考试旁白，使用标准普通话单独播报，不要接在英文正文后面。"
+          : "考试旁白，清晰说明要求，避免口语化。"
+      )
+    }
+  }
+
   for (const line of lines) {
     if (isManualBoundary(line)) {
       const had = flushBlock()
@@ -379,6 +463,7 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
       currentPlan = buildPlan(line, currentPlan, sectionIndex)
       freeformIndex = 0
       freeformGroupId = currentPlan.id
+      narrationIndex = 0
       const text = instructionText(line)
       if (text) {
         out.push({
@@ -417,22 +502,11 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
     }
 
     if (currentPlan.mode === "monologue") {
-      const activeBlock = block || startBlock(currentPlan.qStart, currentPlan.qEnd, `${currentPlan.id}-monologue`)
-      activeBlock.lines.push({ speakerTag: "NARRATOR", text: line, label: "旁白" })
+      pushFreeformLine(line)
       continue
     }
 
-    flushBlock()
-    const range = parseQuestionRange(line)
-    const groupId = groupIdFor(range.start, range.end, currentPlan.id)
-    out.push({
-      type: "tts",
-      speakerTag: "NARRATOR",
-      text: line,
-      label: formatRange(range.start, range.end) || "旁白",
-      groupId,
-      directorNote: "考试旁白，清晰说明要求，避免口语化。"
-    })
+    pushFreeformLine(line)
   }
 
   flushBlock()
