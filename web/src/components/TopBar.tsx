@@ -36,34 +36,16 @@ export function TopBar(props: Props) {
       <div className="topbarRow">
         <div className="brand">
           <div className="brandMark" aria-hidden="true">听</div>
-          <div>
-            <div className="brandTitleRow">
+          <div className="brandLayout">
+            <div className="brandCopy">
               <div className="brandTitle">听力音频制作台</div>
-              <div className="providerBadge">{providerLabel}</div>
+              <div className="brandSub">脚本拆分 · 逐句配音 · 合成导出</div>
             </div>
-            <div className="brandSub">脚本拆分 · 逐句配音 · 合成导出</div>
-          </div>
-        </div>
-
-        <div className="topbarStats" aria-label="project stats">
-          <div>
-            <strong>{props.stats.total}</strong>
-            <span>片段</span>
-          </div>
-          <div>
-            <strong>{props.stats.generated}/{props.stats.tts}</strong>
-            <span>已生成</span>
-          </div>
-          <div>
-            <strong>{props.stats.totalTime}</strong>
-            <span>预计时长</span>
-          </div>
-          {props.stats.errors ? (
-            <div className="statError">
-              <strong>{props.stats.errors}</strong>
-              <span>错误</span>
+            <div className="providerBadge">
+              <span>当前服务商</span>
+              <strong>{providerLabel}</strong>
             </div>
-          ) : null}
+          </div>
         </div>
 
         <div className="topbarActions">

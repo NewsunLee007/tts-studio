@@ -20,7 +20,7 @@
   margin: 0 auto;
   padding: 12px 22px;
   display: grid;
-  grid-template-columns: minmax(300px, 0.74fr) minmax(300px, 0.62fr) minmax(760px, 1.64fr);
+  grid-template-columns: minmax(560px, 0.9fr) minmax(780px, 1.35fr);
   align-items: center;
   gap: 18px;
 }
@@ -44,10 +44,15 @@
   box-shadow: 0 16px 36px rgba(37, 99, 235, 0.22);
 }
 
-.brandTitleRow {
-  display: flex;
+.brandLayout {
+  display: grid;
+  grid-template-columns: max-content minmax(150px, 220px);
   align-items: center;
-  gap: 8px;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brandCopy {
   min-width: 0;
 }
 
@@ -59,14 +64,31 @@
 }
 
 .providerBadge {
-  max-width: 150px;
+  width: 100%;
   border: 1px solid rgba(37, 99, 235, 0.14);
-  border-radius: 999px;
+  border-radius: 14px;
   background: rgba(37, 99, 235, 0.08);
   color: var(--blue);
-  padding: 4px 8px;
+  padding: 6px 10px;
   font-size: 11px;
   font-weight: 900;
+  line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.providerBadge span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.providerBadge strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--blue);
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -127,6 +149,10 @@
   min-width: 0;
 }
 
+.topbarActions button {
+  white-space: nowrap;
+}
+
 .actionCluster {
   position: relative;
   display: inline-flex;
@@ -134,6 +160,7 @@
   gap: 7px;
   min-height: 46px;
   padding: 6px 8px;
+  flex: none;
   border: 1px solid rgba(93, 110, 135, 0.14);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.58);
@@ -142,9 +169,17 @@
 
 .actionClusterExport {
   background: linear-gradient(135deg, rgba(15, 127, 122, 0.09), rgba(255, 252, 244, 0.72));
+  flex-wrap: nowrap;
+}
+
+.actionClusterExport .btn,
+.actionClusterExport .btnAccent {
+  min-width: 64px;
+  white-space: nowrap;
 }
 
 .actionClusterUtility {
+  margin-left: auto;
   padding: 0;
   border: 0;
   background: transparent;
@@ -158,6 +193,8 @@
 }
 
 .formatSelect {
+  width: 108px;
+  flex: none;
   height: 36px;
   border-radius: 10px;
   border: 1px solid rgba(48, 45, 38, 0.14);
@@ -175,12 +212,16 @@
   white-space: nowrap;
 }
 
+.compactControls {
+  margin-top: 10px;
+}
+
 .workspace {
   width: min(1760px, 100%);
   margin: 0 auto;
   padding: 18px 22px;
   display: grid;
-  grid-template-columns: minmax(360px, var(--paste-pane-width, 520px)) minmax(390px, 430px) minmax(420px, 1fr);
+  grid-template-columns: minmax(360px, var(--paste-pane-width, 520px)) minmax(340px, var(--segment-pane-width, 430px)) minmax(420px, 1fr);
   gap: 18px;
   flex: 1;
   min-height: 0;
@@ -192,6 +233,22 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
+}
+
+.segmentPane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.segmentPane > .leftPane {
+  height: 100%;
+  min-height: 0;
+}
+
+.segmentResizeHandle {
+  right: -12px;
 }
 
 .pastePane > .rightCard {
@@ -992,7 +1049,7 @@ textarea:focus {
   backdrop-filter: blur(22px) saturate(1.1);
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
   display: grid;
-  grid-template-columns: minmax(160px, 190px) minmax(160px, 1fr) minmax(130px, 170px);
+  grid-template-columns: minmax(380px, 0.9fr) minmax(240px, 1fr) minmax(100px, 130px);
   align-items: center;
   gap: 16px;
   padding: 12px 16px;
@@ -1003,6 +1060,41 @@ textarea:focus {
   gap: 10px;
   align-items: center;
   min-width: 0;
+}
+
+.transportStats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.transportStats > div {
+  min-width: 70px;
+  border: 1px solid rgba(93, 110, 135, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 6px 8px;
+}
+
+.transportStats strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.transportStats span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.transportStats .transportStatError {
+  border-color: rgba(220, 38, 38, 0.24);
+  background: var(--danger-soft);
 }
 
 .transportIconButton {
@@ -1561,6 +1653,15 @@ textarea:focus {
     gap: 5px;
   }
 
+  .brandLayout {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .providerBadge {
+    max-width: 240px;
+  }
+
   .brandTitle {
     font-size: 18px;
   }
@@ -1606,6 +1707,7 @@ textarea:focus {
   }
 
   .pastePane,
+  .segmentPane,
   .leftPane,
   .editorStack {
     min-height: auto;

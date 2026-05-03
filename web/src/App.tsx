@@ -351,6 +351,7 @@ export default function App() {
   const [previewItemProgress, setPreviewItemProgress] = useState(0)
   const [previewError, setPreviewError] = useState("")
   const [pastePaneWidth, setPastePaneWidth] = useState(520)
+  const [segmentPaneWidth, setSegmentPaneWidth] = useState(430)
   const [exportFormat, setExportFormat] = useState<"mp3" | "wav">(() => (safeGetItem("tts_export_format") === "wav" ? "wav" : "mp3"))
   const [speedSampleUrl, setSpeedSampleUrl] = useState("")
   const [speedSampleState, setSpeedSampleState] = useState<"idle" | "generating" | "done" | "error">("idle")
@@ -1508,6 +1509,24 @@ export default function App() {
     window.addEventListener("pointerup", onUp, { once: true })
   }
 
+  function startResizeSegmentPane(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = segmentPaneWidth
+    const onMove = (moveEvent: PointerEvent) => {
+      const next = Math.round(startWidth + moveEvent.clientX - startX)
+      setSegmentPaneWidth(Math.max(340, Math.min(680, next)))
+    }
+    const onUp = () => {
+      document.body.style.userSelect = ""
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+    }
+    document.body.style.userSelect = "none"
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp, { once: true })
+  }
+
   async function generateSpeedSample(_multiplier: number, sampleText: string) {
     if (!credentialsComplete(providerConfig, credentials)) {
       setSpeedSampleState("error")
@@ -1746,7 +1765,7 @@ export default function App() {
         stats={stats}
       />
 
-      <main className="workspace" style={{ "--paste-pane-width": `${pastePaneWidth}px` } as CSSProperties}>
+      <main className="workspace" style={{ "--paste-pane-width": `${pastePaneWidth}px`, "--segment-pane-width": `${segmentPaneWidth}px` } as CSSProperties}>
         <div className="pastePane">
           <BulkPaste
             analyzing={analyzing}
@@ -1808,16 +1827,24 @@ export default function App() {
           />
         </div>
 
-        <SegmentList
-          provider={provider}
-          segments={segments}
-          selectedUid={selectedUid}
-          onSelect={setSelectedUid}
-          onReorder={reorder}
-          onAddTts={addTts}
-          onAddSilence={addSilence}
-          onClearAll={clearAllSegments}
-        />
+        <div className="segmentPane">
+          <SegmentList
+            provider={provider}
+            segments={segments}
+            selectedUid={selectedUid}
+            onSelect={setSelectedUid}
+            onReorder={reorder}
+            onAddTts={addTts}
+            onAddSilence={addSilence}
+            onClearAll={clearAllSegments}
+          />
+          <button
+            className="resizeHandle segmentResizeHandle"
+            type="button"
+            aria-label="拖动调整语音片段选择面板宽度"
+            onPointerDown={startResizeSegmentPane}
+          />
+        </div>
 
         <div className="editorStack">
           <SegmentEditor
@@ -1851,8 +1878,24 @@ export default function App() {
           <button className="transportIconButton" type="button" onClick={stopPreview} disabled={!previewing} aria-label="停止" title="停止">
             <span className="stopGlyph" aria-hidden="true" />
           </button>
+          <div className="transportStats" aria-label="项目状态">
+            <div>
+              <strong>{stats.total}</strong>
+              <span>片段</span>
+            </div>
+            <div>
+              <strong>{stats.generated}/{stats.tts}</strong>
+              <span>已生成</span>
+            </div>
+            {stats.errors ? (
+              <div className="transportStatError">
+                <strong>{stats.errors}</strong>
+                <span>错误</span>
+              </div>
+            ) : null}
+          </div>
           <div className="transportStatus">
-            <strong>{stats.generated}/{stats.tts}</strong>
+            <strong>{stats.totalTime}</strong>
             <span>
               {previewError
                 ? previewError
@@ -1893,8 +1936,8 @@ export default function App() {
           />
         </div>
         <div className="transportMeta transportMetaRight">
-          <strong>{stats.totalTime}</strong>
-          <span>{stats.total} 段 · {stats.silence} 个停顿</span>
+          <strong>{formatTime(estimateSeconds(segments))}</strong>
+          <span>{stats.silence} 个停顿</span>
         </div>
       </footer>
 

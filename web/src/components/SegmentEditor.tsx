@@ -64,8 +64,7 @@ export function SegmentEditor(props: Props) {
     return (
       <section className="rightPane">
         <div className="rightEmpty">
-          <div className="emptyTitle">请选择左侧片段</div>
-          <div className="emptySub">或者先用“粘贴自动拆分”生成一批片段</div>
+          <div className="emptyTitle">片段修改生成</div>
         </div>
       </section>
     )

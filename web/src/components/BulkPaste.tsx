@@ -29,8 +29,7 @@ export function BulkPaste(props: Props) {
     <section className="rightCard">
       <div className="cardHeadRow">
         <div className="cardHead">
-          <div className="cardTitle">粘贴并按题拆分</div>
-          <div className="cardSub">优先提取听力正文，自动跳过题干、选项和答案行</div>
+          <div className="cardTitle">语音文稿处理</div>
         </div>
         <div className="cardActionsInline bulkActions">
           <button className="btnPrimary" type="button" onClick={() => props.onAnalyze(text, applyMode)} disabled={!text.trim() || props.analyzing}>
@@ -80,7 +79,7 @@ export function BulkPaste(props: Props) {
         rows={10}
       />
 
-      <div className="cardGrid bulkControlsGrid">
+      <div className="cardGrid bulkControlsGrid compactControls">
         <label className="field">
           <div className="label">拆分规则</div>
           <select value={mode} onChange={(e) => setMode(e.target.value as InputMode)}>

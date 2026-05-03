@@ -169,7 +169,7 @@ export function SegmentList(props: Props) {
   return (
     <aside className="leftPane">
       <div className="leftHead">
-        <div className="leftTitle">片段</div>
+        <div className="leftTitle">语音片段选择</div>
         <div className="leftActions">
           <button className="btnGhost" type="button" onClick={props.onAddTts}>
             + TTS
