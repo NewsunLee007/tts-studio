@@ -441,6 +441,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
       const range = parseQuestionRange(chunk.text)
       if (isClosingAnnouncement(chunk.text)) {
         flushBlock()
+        pushSilence(5000, "结束前停顿", `${currentPlan.id}::pre-closing`, "考试结束播报前保留 5 秒静音。")
         pushStandaloneNarration(chunk.text, "考试结束", `${currentPlan.id}::closing`, "考试结束提示，中文标准普通话，简短、清楚、不要与前一段英文连读。")
         continue
       }
@@ -557,9 +558,9 @@ function toAnalyzedSegment(item: DraftSegment): AnalyzedSegment {
   if (item.type === "silence") return { type: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId }
 
   const question = /^Number\s+\d+/i.test(item.text.trim())
-  const role = question ? "question" : speakerRole(item.speakerTag)
-  const stylePresetId: StylePresetId = question ? "question_marker" : role === "narrator" ? "teacher" : "dialogue"
-  const pacePreset: PacePresetId = role === "narrator" || role === "question" ? "exam_slow" : "exam_standard"
+  const role = question ? "question" : item.speakerTag === "NARRATOR" && hasChinese(item.text) ? "intro" : speakerRole(item.speakerTag)
+  const stylePresetId: StylePresetId = question ? "question_marker" : role === "narrator" ? "teacher" : role === "intro" ? "exam_host" : "dialogue"
+  const pacePreset: PacePresetId = role === "narrator" || role === "intro" || role === "question" ? "exam_slow" : "exam_standard"
   const baseNote =
     role === "male"
       ? "性别锁定：Male。该句只能由男声角色朗读；与 Female 轮次保持清楚区分，不能串用女声。"

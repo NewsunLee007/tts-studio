@@ -421,6 +421,7 @@ export function parseExamScript(input: string, options: ExamParseOptions = {}): 
       const range = parseQuestionRange(chunk.text)
       if (isClosingAnnouncement(chunk.text)) {
         flushBlock()
+        pushSilence(5000, "结束前停顿", `${currentPlan.id}::pre-closing`, "考试结束播报前保留 5 秒静音。")
         pushStandaloneNarration(chunk.text, "考试结束", `${currentPlan.id}::closing`, "考试结束提示，中文标准普通话，简短、清楚、不要与前一段英文连读。")
         continue
       }

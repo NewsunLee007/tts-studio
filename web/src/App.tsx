@@ -357,6 +357,7 @@ export default function App() {
   const previewStopRef = useRef(false)
   const previewRunIdRef = useRef(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const musicAudioContextRef = useRef<AudioContext | null>(null)
   const providerRef = useRef(provider)
 
   useEffect(() => {
@@ -430,12 +431,14 @@ export default function App() {
 
   type PreviewItem =
     | { kind: "silence"; durationMs: number; label?: string; groupId?: string }
+    | { kind: "music"; presetId: "warmup" | "bell" | "soft"; durationMs: number; label?: string; groupId?: string }
     | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string }
 
   const previewItems = useMemo<PreviewItem[]>(() => {
     const out: PreviewItem[] = []
     for (const item of segments) {
       if (item.type === "silence") out.push({ kind: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId })
+      else if (item.type === "music") out.push({ kind: "music", presetId: item.presetId, durationMs: item.durationMs, label: item.label })
       else if (item.type === "tts") {
         const source = item.repeatOfUid ? segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid) : null
         const url = item.audioUrl || source?.audioUrl
@@ -450,9 +453,9 @@ export default function App() {
     return previewItems.flatMap((item, index) => {
       const raw = item.groupId || item.label || ""
       const range = raw.match(/q-(\d+)(?:-(\d+))?/) || item.label?.match(/第\s*(\d+)(?:\s*(?:至|到|-)\s*(\d+))?\s*题/)
-      const label = range ? (range[2] && range[2] !== range[1] ? `${range[1]}-${range[2]}` : range[1]) : /^Number\s+\d+/i.test(item.label || "") ? (item.label || "").replace(/^Number\s+/i, "") : ""
+      const label = range ? range[1] : /^Number\s+\d+/i.test(item.label || "") ? (item.label || "").replace(/^Number\s+/i, "") : ""
       if (!label) return []
-      const key = raw || label
+      const key = label
       if (seen.has(key)) return []
       seen.add(key)
       return [{ index, label }]
@@ -654,6 +657,12 @@ export default function App() {
       setPreviewIndex(idx)
       setPreviewItemProgress(0)
 
+      if (item.kind === "music") {
+        await playPreviewMusic(item.presetId, item.durationMs, runId)
+        setPreviewItemProgress(1)
+        return playAt(idx + 1)
+      }
+
       if (item.kind === "silence") {
         const startedAt = performance.now()
         const duration = Math.max(0, item.durationMs)
@@ -717,6 +726,51 @@ export default function App() {
     })
   }
 
+  async function playPreviewMusic(presetId: "warmup" | "bell" | "soft", durationMs: number, runId: number) {
+    const duration = Math.max(250, Math.min(durationMs, 30000))
+    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioContextCtor) {
+      await delay(duration)
+      return
+    }
+
+    const context = musicAudioContextRef.current || new AudioContextCtor()
+    musicAudioContextRef.current = context
+    if (context.state === "suspended") await context.resume()
+
+    const now = context.currentTime
+    const end = now + duration / 1000
+    const master = context.createGain()
+    master.gain.setValueAtTime(0.0001, now)
+    master.gain.exponentialRampToValueAtTime(0.12, now + 0.06)
+    master.gain.exponentialRampToValueAtTime(0.0001, Math.max(now + 0.08, end - 0.18))
+    master.connect(context.destination)
+
+    const frequencies = presetId === "bell" ? [880, 1320] : presetId === "soft" ? [392, 523] : [523, 659, 784]
+    const oscillators = frequencies.map((frequency, index) => {
+      const osc = context.createOscillator()
+      const gain = context.createGain()
+      osc.type = index === 0 ? "sine" : "triangle"
+      osc.frequency.setValueAtTime(frequency, now)
+      gain.gain.setValueAtTime(index === 0 ? 0.95 : 0.35, now)
+      osc.connect(gain).connect(master)
+      osc.start(now)
+      osc.stop(end)
+      return osc
+    })
+
+    const startedAt = performance.now()
+    const timer = window.setInterval(() => {
+      if (previewStopRef.current || previewRunIdRef.current !== runId) return
+      setPreviewItemProgress(Math.min(1, (performance.now() - startedAt) / duration))
+    }, 80)
+
+    await delay(duration)
+    window.clearInterval(timer)
+    oscillators.forEach((osc) => osc.disconnect())
+    master.disconnect()
+  }
+
   function stopPreview() {
     previewRunIdRef.current += 1
     previewStopRef.current = true
@@ -726,6 +780,9 @@ export default function App() {
     if (audio) {
       audio.pause()
       audio.currentTime = 0
+    }
+    if (musicAudioContextRef.current?.state === "running") {
+      void musicAudioContextRef.current.suspend()
     }
   }
 
@@ -1680,6 +1737,8 @@ export default function App() {
                     ? ({ role: "female" as const, label: speakerTag || item.label || "W" })
                     : isQuestionMarker
                       ? ({ role: "question" as const, label: item.label || item.text.trim() })
+                    : speakerTag === "NARRATOR" && hasChineseText(item.text)
+                      ? ({ role: "intro" as const, label: item.label || "旁白" })
                     : speakerTag === "NARRATOR"
                       ? ({ role: "narrator" as const, label: item.label || "旁白" })
                       : ({ role: "neutral" as const, label: item.label })
@@ -1691,7 +1750,7 @@ export default function App() {
                 label: inferred.label,
                 voiceId: voiceForRole(inferred.role),
                 modelId,
-                stylePresetId: inferred.role === "question" ? "question_marker" : inferred.role === "male" || inferred.role === "female" ? "dialogue" : "",
+                stylePresetId: inferred.role === "question" ? "question_marker" : inferred.role === "male" || inferred.role === "female" ? "dialogue" : inferred.role === "intro" ? "exam_host" : "",
                 stylePrompt: "",
                 role: inferred.role,
                 groupId: itemGroupId,
@@ -1752,11 +1811,11 @@ export default function App() {
 
       <footer className="transportBar" aria-label="project transport">
         <div className="transportControls">
-          <button className="btnGhost" type="button" onClick={() => void startPreview(previewIndex)} disabled={previewing || !previewItems.length}>
-            {previewing ? "预览中…" : "预览"}
+          <button className="transportIconButton" type="button" onClick={() => void startPreview(previewIndex)} disabled={previewing || !previewItems.length} aria-label="播放" title="播放">
+            <span className="playGlyph" aria-hidden="true" />
           </button>
-          <button className="btnGhost" type="button" onClick={stopPreview} disabled={!previewing}>
-            停止
+          <button className="transportIconButton" type="button" onClick={stopPreview} disabled={!previewing} aria-label="停止" title="停止">
+            <span className="stopGlyph" aria-hidden="true" />
           </button>
           <div className="transportStatus">
             <strong>{stats.generated}/{stats.tts}</strong>
