@@ -78,7 +78,7 @@ function groupForGemini(input: Segment[]) {
   const groups: GeminiGroup[] = []
   let currentKey = ""
   for (const [index, seg] of input.entries()) {
-    const groupId = seg.type === "tts" || seg.type === "silence" ? seg.groupId : undefined
+    const groupId = seg.type === "tts" ? seg.groupId : undefined
     const groupKey = groupId ? `g:${groupId}` : `u:${seg.uid}`
     const key = `${groupKey}:${index}`
     if (groupKey !== currentKey) {
