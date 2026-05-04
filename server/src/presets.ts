@@ -110,6 +110,8 @@ export const providerConfigs: ProviderConfig[] = [
     ],
     voices: [
       { id: "Cherry", label: "Cherry 清晰女声", gender: "female", locale: "en-US", role: "narrator" },
+      { id: "Serena", label: "Serena 自然女声", gender: "female", locale: "en-US", role: "dialogue" },
+      { id: "Chelsie", label: "Chelsie 活泼女声", gender: "female", locale: "en-US", role: "dialogue" },
       { id: "Ethan", label: "Ethan 清晰男声", gender: "male", locale: "en-US", role: "dialogue" }
     ],
     capabilities: ["指令控制", "多模型", "中英双语", "适合考试旁白"],

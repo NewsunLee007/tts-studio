@@ -94,6 +94,21 @@ function compatibleCosyVoice(model: string, voice?: string) {
   return requested || "loongbella_v2"
 }
 
+const qwenVoiceByGender = {
+  female: ["Cherry", "Serena", "Chelsie"],
+  male: ["Ethan"]
+}
+
+function qwenVoiceAttempts(preferredVoice: string) {
+  const allowed = [...qwenVoiceByGender.female, ...qwenVoiceByGender.male]
+  const preferredGender = qwenVoiceByGender.male.includes(preferredVoice) ? qwenVoiceByGender.male : qwenVoiceByGender.female.includes(preferredVoice) ? qwenVoiceByGender.female : []
+  return Array.from(new Set([preferredVoice, ...preferredGender, ...allowed])).filter(Boolean)
+}
+
+function isUnsupportedQwenVoiceError(errorText: string) {
+  return /Voice .* is not supported|voice.*not.*supported|Input should be .*input\.voice/i.test(errorText)
+}
+
 export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   const apiKey = req.credentials.apiKey
   if (!apiKey) throw new Error("DashScope API Key required")
@@ -108,8 +123,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   const fallbackModels = ["qwen-tts", "qwen3-tts-flash", "qwen3-tts-instruct-flash"]
   const modelAttempts = Array.from(new Set([preferredModel, ...fallbackModels]))
   const preferredVoice = req.voice || "Cherry"
-  const fallbackVoices = ["Cherry", "Ethan"]
-  const voiceAttempts = Array.from(new Set([preferredVoice, ...fallbackVoices]))
+  const voiceAttempts = qwenVoiceAttempts(preferredVoice)
 
   const url = `${base}/services/aigc/multimodal-generation/generation`
 
@@ -146,7 +160,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
       if (res.ok) break
 
       errorText = await res.text().catch(() => "")
-      const voiceUnsupported = /Voice .* is not supported|voice.*not.*supported/i.test(errorText)
+      const voiceUnsupported = isUnsupportedQwenVoiceError(errorText)
       const modelUnsupported = /Model not exist|model.*not.*exist/i.test(errorText)
       const canFallbackVoice = res.status === 400 && voiceUnsupported && voice !== voiceAttempts[voiceAttempts.length - 1]
       const canFallbackModel = res.status === 400 && modelUnsupported && model !== modelAttempts[modelAttempts.length - 1]
