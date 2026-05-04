@@ -28,6 +28,59 @@ function normalizeInstructions(value: string) {
   return cleaned.slice(0, 1000)
 }
 
+const slashPhonemePattern = /\/([^/\n]{1,40})\//g
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
+}
+
+function normalizeIpaToken(raw: string) {
+  return raw
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/ei/g, "eɪ")
+    .replace(/ou/g, "oʊ")
+    .replace(/ɑ:/g, "ɑː")
+    .replace(/ɔ:/g, "ɔː")
+    .replace(/ɜ:/g, "ɜː")
+    .replace(/i:/g, "iː")
+    .replace(/u:/g, "uː")
+}
+
+function phonemeFallbackText(ipa: string, raw: string) {
+  const compact = raw.trim().replace(/\s+/g, "")
+  const normalized = ipa.replace(/[ˈˌ.]/g, "")
+  const known: Record<string, string> = {
+    sp: "sp",
+    "speɪ": "spay",
+    "speɪs": "space"
+  }
+  return known[normalized] || compact || ipa
+}
+
+function dashscopeTextPayload(text: string) {
+  if (!slashPhonemePattern.test(text)) return { text, ssml: false }
+  slashPhonemePattern.lastIndex = 0
+  let lastIndex = 0
+  let ssml = "<speak>"
+  for (const match of text.matchAll(slashPhonemePattern)) {
+    const start = match.index || 0
+    const rawToken = match[1] || ""
+    const ipa = normalizeIpaToken(rawToken)
+    ssml += escapeXml(text.slice(lastIndex, start))
+    ssml += `<phoneme alphabet="ipa" ph="/${escapeXml(ipa)}/">${escapeXml(phonemeFallbackText(ipa, rawToken))}</phoneme>`
+    lastIndex = start + match[0].length
+  }
+  ssml += escapeXml(text.slice(lastIndex))
+  ssml += "</speak>"
+  return { text: ssml, ssml: true }
+}
+
 function compatibleCosyVoice(model: string, voice?: string) {
   const requested = voice || ""
   if (model.startsWith("cosyvoice-v3")) {
@@ -69,10 +122,12 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
     for (const voice of voiceAttempts) {
       usedModel = model
       usedVoice = voice
+      const textPayload = dashscopeTextPayload(req.text)
       const input: Record<string, unknown> = {
-        text: req.text,
+        text: textPayload.text,
         voice
       }
+      if (textPayload.ssml) input.text_type = "ssml"
       if (req.languageType) input.language_type = req.languageType
       if (req.stylePrompt) {
         input.instructions = normalizeInstructions(req.stylePrompt)
@@ -131,8 +186,9 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
 async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string, model: string): Promise<TtsAudio> {
   const url = `${base}/services/audio/tts/SpeechSynthesizer`
   const preferredVoice = compatibleCosyVoice(model, req.voice)
+  const textPayload = dashscopeTextPayload(req.text)
   const input: Record<string, unknown> = {
-    text: req.text,
+    text: textPayload.text,
     voice: preferredVoice,
     format: "mp3",
     sample_rate: 24000,
@@ -140,6 +196,7 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
     pitch: Math.max(0.5, Math.min(2, req.pitch || 1)),
     volume: Math.max(0, Math.min(100, Math.round((req.volume || 1) * 50)))
   }
+  if (textPayload.ssml) input.text_type = "ssml"
 
   if (req.languageType) {
     const language = req.languageType.toLowerCase().startsWith("en") ? "en" : req.languageType.toLowerCase().startsWith("zh") || req.languageType === "Chinese" ? "zh" : ""

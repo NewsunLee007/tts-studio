@@ -278,7 +278,7 @@ function detectTiming(line: string, mode: SectionPlan["mode"]) {
   const everyQuestion = line.match(/每小题\s*([0-9]+)\s*秒/)
   const hasQuestionReadTime = /阅读各小题|读题/.test(line)
   const hasAnswerTime = /作答时间|回答有关小题|回答时间/.test(line)
-  const fixedAnswer = line.match(/都有\s*([0-9]+)\s*秒(?:钟)?(?:的时间)?(?:来)?(?:回答|作答)?/)
+  const fixedAnswer = line.match(/(?:都有|有)\s*([0-9]+)\s*秒(?:钟)?(?:的时间)?(?:来)?(?:回答|作答|阅读下一小题)?/)
 
   return {
     preReadMsPerQuestion: everyQuestion && hasQuestionReadTime ? Number(everyQuestion[1]) * 1000 : mode === "monologue" ? 5000 : 0,
@@ -341,6 +341,14 @@ function questionMarkerText(number: number, style: "number" | "test") {
   return `${style === "test" ? "Test" : "Number"} ${number}`
 }
 
+function musicPresetDurationMs(presetId: "ding" | "piano") {
+  return presetId === "ding" ? 1730 : 13720
+}
+
+function introMusicDurationMs(presetId: ExamTemplate["introMusicPreset"]) {
+  return presetId === "piano" ? musicPresetDurationMs("piano") : 3500
+}
+
 function parseStructuredExamScript(input: string, includeQuestionNumbers: boolean, options: { majorBreakMs?: number; minorBreakMs?: number; questionNumberGapMs?: number; questionNumberStyle?: "number" | "test" } = {}): DraftSegment[] {
   const out: DraftSegment[] = []
   const lines = mergeLines(input)
@@ -350,6 +358,8 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
   let freeformIndex = 0
   let freeformGroupId = currentPlan.id
   let narrationIndex = 0
+  let pendingInstructionGapMs = 0
+  let lastFlushEndedWithPause = false
   const majorBreakMs = Math.max(0, options.majorBreakMs ?? 10000)
   const minorBreakMs = Math.max(0, options.minorBreakMs ?? 5000)
   const questionNumberGapMs = Math.max(0, options.questionNumberGapMs ?? 1000)
@@ -359,9 +369,16 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
     if (durationMs > 0) out.push({ type: "silence", durationMs, label, groupId, directorNote: note })
   }
 
+  const consumeInstructionGap = (durationMs = pendingInstructionGapMs, label = "题干后间隔") => {
+    const safeDuration = Math.max(0, durationMs)
+    if (safeDuration > 0) pushSilence(safeDuration, label, currentPlan.id, "中文题目要求之后的过渡停顿")
+    pendingInstructionGapMs = 0
+  }
+
   const flushBlock = () => {
     if (!block || !block.lines.length) {
       block = null
+      lastFlushEndedWithPause = false
       return false
     }
 
@@ -410,11 +427,13 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
       pushSilence(block.answerMs, "作答时间", block.groupId, `${block.label} 作答停顿`)
     }
 
+    lastFlushEndedWithPause = block.answerMs > 0
     block = null
     return true
   }
 
   const startBlock = (qStart?: number, qEnd?: number, fallbackId?: string) => {
+    consumeInstructionGap()
     const count = questionCount(qStart, qEnd)
     const rangeLabel = formatRange(qStart, qEnd) || currentPlan.label
     const nextBlock: DialogueBlock = {
@@ -486,8 +505,10 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
 
     if (!speaker && isSectionLine(line)) {
       flushBlock()
+      const hadPendingInstructionGap = pendingInstructionGapMs > 0
+      if (hadPendingInstructionGap) consumeInstructionGap(1000, "说明间隔")
       sectionIndex += 1
-      if (sectionIndex > 1) pushSilence(majorBreakMs, "大题间隔", `section-gap-${sectionIndex}`, "大题或题组之间的全局间隔")
+      if (!hadPendingInstructionGap && sectionIndex > 1) pushSilence(majorBreakMs, "大题间隔", `section-gap-${sectionIndex}`, "大题或题组之间的全局间隔")
       currentPlan = buildPlan(line, currentPlan, sectionIndex)
       freeformIndex = 0
       freeformGroupId = currentPlan.id
@@ -502,6 +523,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
           groupId: `${currentPlan.id}::instruction`,
           directorNote: "考试大题说明，完整播报原题干，同时根据其中的读题、作答和朗读次数信息安排停顿。"
         })
+        pendingInstructionGapMs = 3000
       }
       continue
     }
@@ -510,7 +532,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
       let activeBlock: DialogueBlock
       if (speaker.number) {
         const hadPreviousQuestion = flushBlock()
-        if (hadPreviousQuestion) pushSilence(minorBreakMs, "小题间隔", currentPlan.id, "小题之间的全局间隔")
+        if (hadPreviousQuestion && !lastFlushEndedWithPause) pushSilence(minorBreakMs, "小题间隔", currentPlan.id, "小题之间的全局间隔")
         activeBlock = startBlock(speaker.number, speaker.number)
         if (includeQuestionNumbers) {
           const numberGroupId = `${activeBlock.groupId}::number`
@@ -518,7 +540,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
           out.push({
             type: "music",
             presetId: "ding",
-            durationMs: 650,
+            durationMs: musicPresetDurationMs("ding"),
             label: "题号提示音",
             groupId: numberGroupId
           })
@@ -604,7 +626,7 @@ export function analyzeExamScript(input: string, template: ExamTemplate): Analyz
 
   if (template.includeIntroMusic !== false) {
     const introPreset = template.introMusicPreset || "warmup"
-    segments.push({ type: "music", presetId: introPreset, durationMs: introPreset === "piano" ? 5000 : 3500, label: introPreset === "piano" ? "钢琴曲导入音乐" : "导入音乐" })
+    segments.push({ type: "music", presetId: introPreset, durationMs: introMusicDurationMs(introPreset), label: introPreset === "piano" ? "钢琴曲导入音乐" : "导入音乐" })
   }
 
   if (template.includeExamIntro !== false) {

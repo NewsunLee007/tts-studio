@@ -41,6 +41,12 @@ function toDurationMs(minutes: number, seconds: number) {
   return Math.round((safeMinutes * 60 + safeSeconds) * 1000)
 }
 
+function musicPresetDurationMs(presetId: "warmup" | "bell" | "soft" | "piano" | "ding", fallbackMs: number) {
+  if (presetId === "ding") return 1730
+  if (presetId === "piano") return 13720
+  return fallbackMs
+}
+
 function roleLabel(segment: TtsSegment) {
   if (segment.role === "female") return "Female / W"
   if (segment.role === "male") return "Male / M"
@@ -114,7 +120,8 @@ export function SegmentEditor(props: Props) {
   }
 
   if (seg.type === "music") {
-    const duration = splitDuration(seg.durationMs)
+    const fixedDuration = seg.presetId === "ding" || seg.presetId === "piano"
+    const duration = splitDuration(musicPresetDurationMs(seg.presetId, seg.durationMs))
     return (
       <section className="rightPane">
         <div className="rightCard inspectorCard">
@@ -125,7 +132,13 @@ export function SegmentEditor(props: Props) {
           <div className="cardGrid">
             <label className="field">
               <div className="label">音乐类型</div>
-              <select value={seg.presetId} onChange={(e) => props.onUpdate(seg.uid, { presetId: e.target.value as "warmup" | "bell" | "soft" | "piano" | "ding" })}>
+              <select
+                value={seg.presetId}
+                onChange={(e) => {
+                  const presetId = e.target.value as "warmup" | "bell" | "soft" | "piano" | "ding"
+                  props.onUpdate(seg.uid, { presetId, durationMs: musicPresetDurationMs(presetId, seg.durationMs) })
+                }}
+              >
                 <option value="warmup">Warmup</option>
                 <option value="bell">Bell</option>
                 <option value="soft">Soft</option>
@@ -141,6 +154,7 @@ export function SegmentEditor(props: Props) {
                   min={0}
                   step={1}
                   value={duration.minutes}
+                  disabled={fixedDuration}
                   onChange={(e) => props.onUpdate(seg.uid, { durationMs: toDurationMs(Number(e.target.value), duration.seconds) })}
                 />
               </label>
@@ -151,10 +165,12 @@ export function SegmentEditor(props: Props) {
                   min={0}
                   step={0.1}
                   value={duration.seconds}
+                  disabled={fixedDuration}
                   onChange={(e) => props.onUpdate(seg.uid, { durationMs: toDurationMs(duration.minutes, Number(e.target.value)) })}
                 />
               </label>
             </div>
+            {fixedDuration ? <p className="fieldHint">该音乐使用上传文件的原始时长，不再手动裁短。</p> : null}
           </div>
           <div className="cardActions">
             <button className="btnDanger" type="button" onClick={() => props.onDelete(seg.uid)}>

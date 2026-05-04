@@ -149,6 +149,15 @@ const defaultTemplate: ExamTemplate = {
   chineseCharsPerMinute: 230
 }
 
+const MUSIC_PRESET_DURATIONS_MS: Partial<Record<MusicSegment["presetId"], number>> = {
+  ding: 1730,
+  piano: 13720
+}
+
+function musicPresetDurationMs(presetId: MusicSegment["presetId"], fallbackMs = 3500) {
+  return MUSIC_PRESET_DURATIONS_MS[presetId] || fallbackMs
+}
+
 function safeGetItem(key: string) {
   try {
     return typeof window === "undefined" ? null : localStorage.getItem(key)
@@ -181,6 +190,9 @@ function readStoredSegments() {
   return raw
     .filter((item): item is Segment => item && typeof item === "object" && "uid" in item && "type" in item)
     .map((item) => {
+      if (item.type === "music") {
+        return { ...item, durationMs: musicPresetDurationMs(item.presetId, item.durationMs) }
+      }
       if (item.type !== "tts") return item
       const status = item.status === "queued" || item.status === "generating" ? "idle" : item.status
       return { ...item, status, error: status === "idle" ? "" : item.error }
@@ -254,14 +266,16 @@ function defaultTtsSegment(defaults: { voiceId: string; modelId: string; stylePr
 
 function estimateSeconds(segments: Segment[]) {
   return segments.reduce((total, segment) => {
-    if (segment.type === "silence" || segment.type === "music") return total + segment.durationMs / 1000
+    if (segment.type === "silence") return total + segment.durationMs / 1000
+    if (segment.type === "music") return total + musicPresetDurationMs(segment.presetId, segment.durationMs) / 1000
     const chars = segment.text.trim().replace(/\s+/g, " ").length
     return total + chars / 12 / (segment.speed || 1)
   }, 0)
 }
 
 function estimatePreviewItemMs(item: PreviewItem) {
-  if (item.kind === "silence" || item.kind === "music") return Math.max(0, item.durationMs)
+  if (item.kind === "silence") return Math.max(0, item.durationMs)
+  if (item.kind === "music") return Math.max(0, musicPresetDurationMs(item.presetId, item.durationMs))
   return Math.max(900, (item.estimatedSeconds || 1) * 1000)
 }
 
@@ -471,7 +485,7 @@ export default function App() {
     const out: PreviewItem[] = []
     for (const item of segments) {
       if (item.type === "silence") out.push({ kind: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId })
-      else if (item.type === "music") out.push({ kind: "music", presetId: item.presetId, durationMs: item.durationMs, label: item.label })
+      else if (item.type === "music") out.push({ kind: "music", presetId: item.presetId, durationMs: musicPresetDurationMs(item.presetId, item.durationMs), label: item.label })
       else if (item.type === "tts") {
         const source = item.repeatOfUid ? segments.find((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid) : null
         const url = item.audioUrl || source?.audioUrl
@@ -700,7 +714,7 @@ export default function App() {
       setPreviewItemProgress(0)
 
       if (item.kind === "music") {
-        await playPreviewMusic(item.presetId, item.durationMs, runId)
+        await playPreviewMusic(item.presetId, musicPresetDurationMs(item.presetId, item.durationMs), runId)
         setPreviewItemProgress(1)
         return playAt(idx + 1)
       }
@@ -967,6 +981,20 @@ export default function App() {
     setSelectedUid(segment.uid)
   }
 
+  function addMusic() {
+    const presetId = template.introMusicPreset || "piano"
+    const segment: Segment = {
+      uid: uid(),
+      type: "music",
+      presetId,
+      durationMs: musicPresetDurationMs(presetId, 3500),
+      label: presetId === "piano" ? "钢琴曲导入音乐" : "导入音乐",
+      role: "music"
+    }
+    setSegments((prev) => insertAfterSelection(prev, segment))
+    setSelectedUid(segment.uid)
+  }
+
   function insertAfterSelection(input: Segment[], segment: Segment) {
     if (!selectedUid) return [...input, segment]
     const selected = input.find((item) => item.uid === selectedUid)
@@ -1123,7 +1151,10 @@ export default function App() {
   }
 
   function normalizeDirectorSegment(item: DirectorSegment): Segment {
-    if (item.type === "music") return { uid: uid(), type: "music", presetId: item.presetId || template.introMusicPreset, durationMs: item.durationMs || 3500, label: item.label || "导入音乐", role: "music" }
+    if (item.type === "music") {
+      const presetId = item.presetId || template.introMusicPreset
+      return { uid: uid(), type: "music", presetId, durationMs: musicPresetDurationMs(presetId, item.durationMs || 3500), label: item.label || "导入音乐", role: "music" }
+    }
     if (item.type === "silence") return { uid: uid(), type: "silence", durationMs: item.durationMs || 1000, label: item.label, role: item.role, groupId: item.groupId }
     const nextPace = item.pacePreset || pacePreset
     const nextSpeed = targetSpeedForText(item.text, template)
@@ -1760,7 +1791,7 @@ export default function App() {
           continue
         }
         if (item.type === "music") {
-          payloadSegments.push({ type: "music", presetId: item.presetId, durationMs: item.durationMs })
+          payloadSegments.push({ type: "music", presetId: item.presetId, durationMs: musicPresetDurationMs(item.presetId, item.durationMs) })
           continue
         }
         const id = resolveAudioId(item)
@@ -1860,7 +1891,7 @@ export default function App() {
               if (item.type === "silence")
                 return { uid: uid(), type: "silence", durationMs: item.durationMs, label: item.label, role: "neutral" as const, groupId: itemGroupId }
               if (item.type === "music")
-                return { uid: uid(), type: "music", presetId: item.presetId, durationMs: item.durationMs, label: item.label || "提示音", role: "music" as const }
+                return { uid: uid(), type: "music", presetId: item.presetId, durationMs: musicPresetDurationMs(item.presetId, item.durationMs), label: item.label || "提示音", role: "music" as const }
               // 尝试从 ExamDraftSegment 类型获取 speakerTag
               const examItem = item as ExamDraftSegment
               const speakerTag = "speakerTag" in examItem && typeof examItem.speakerTag === "string" ? examItem.speakerTag : ""
@@ -1918,6 +1949,7 @@ export default function App() {
             onReorder={reorder}
             onAddTts={addTts}
             onAddSilence={addSilence}
+            onAddMusic={addMusic}
             onClearAll={clearAllSegments}
           />
           <button

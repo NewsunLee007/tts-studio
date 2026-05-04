@@ -8,14 +8,21 @@ type Props = {
   onReorder: (fromUid: string, toUid: string) => void
   onAddTts: () => void
   onAddSilence: () => void
+  onAddMusic: () => void
   onClearAll: () => void
 }
 
 function summarize(seg: Segment) {
   if (seg.type === "silence") return `${seg.label ? `${seg.label} · ` : ""}无声 ${formatDuration(seg.durationMs)}`
-  if (seg.type === "music") return `${seg.label || "导入音乐"} · ${formatDuration(seg.durationMs)}`
+  if (seg.type === "music") return `${seg.label || "导入音乐"} · ${formatDuration(musicDurationMs(seg.presetId, seg.durationMs))}`
   const text = seg.text.trim().replace(/\s+/g, " ")
   return text.length > 44 ? text.slice(0, 44) + "…" : text || "（空文本）"
+}
+
+function musicDurationMs(presetId: string, fallbackMs: number) {
+  if (presetId === "ding") return 1730
+  if (presetId === "piano") return 13720
+  return fallbackMs
 }
 
 function formatDuration(durationMs: number) {
@@ -176,6 +183,9 @@ export function SegmentList(props: Props) {
           </button>
           <button className="btnGhost" type="button" onClick={props.onAddSilence}>
             + 无声
+          </button>
+          <button className="btnGhost" type="button" onClick={props.onAddMusic}>
+            + 音乐
           </button>
           <button className="btnGhost" type="button" onClick={props.onClearAll} disabled={!props.segments.length}>
             清空

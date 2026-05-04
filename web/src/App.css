@@ -1038,6 +1038,14 @@ textarea:focus {
   font-size: 12px;
 }
 
+.fieldHint {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .transportBar {
   flex-shrink: 0;
   width: min(1716px, calc(100% - 44px));

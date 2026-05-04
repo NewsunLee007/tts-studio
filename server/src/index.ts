@@ -66,6 +66,15 @@ type ComposeBody = {
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url))
 
+const MUSIC_PRESET_DURATIONS_MS: Partial<Record<string, number>> = {
+  ding: 1730,
+  piano: 13720
+}
+
+function musicPresetDurationMs(presetId: string, fallbackMs: number) {
+  return MUSIC_PRESET_DURATIONS_MS[presetId] || fallbackMs
+}
+
 type AnalyzeBody = {
   text?: string
   template?: ExamTemplate
@@ -319,7 +328,7 @@ async function writeAudioToMp3(id: string, audio: TtsAudio) {
 
 async function makeMusicSegment(dir: string, index: number, presetId: string, durationMs: number) {
   const dst = path.join(dir, `${String(index).padStart(4, "0")}.wav`)
-  const durationSec = Math.min(Math.max(durationMs / 1000, 0.5), 30)
+  const durationSec = Math.min(Math.max(musicPresetDurationMs(presetId, durationMs) / 1000, 0.5), 60)
   const assetName = presetId === "ding" ? "ding.mp3" : presetId === "piano" ? "piano-intro.mp3" : ""
   if (assetName) {
     const candidates = [
@@ -559,7 +568,8 @@ export async function createApp() {
         }
 
         if (seg.type === "music") {
-          const dst = await makeMusicSegment(dir, i, seg.presetId || "warmup", seg.durationMs || 3500)
+          const presetId = seg.presetId || "warmup"
+          const dst = await makeMusicSegment(dir, i, presetId, musicPresetDurationMs(presetId, seg.durationMs || 3500))
           wavPaths.push(dst)
           i++
           continue
