@@ -1998,6 +1998,10 @@ export default function App() {
               <span>片段</span>
             </div>
             <div>
+              <strong>{stats.silence}</strong>
+              <span>个停顿</span>
+            </div>
+            <div>
               <strong>{stats.generated}/{stats.tts}</strong>
               <span>已生成</span>
             </div>
@@ -2042,10 +2046,6 @@ export default function App() {
             disabled={!previewItems.length}
             aria-label="预览播放进度"
           />
-        </div>
-        <div className="transportMeta transportMetaRight">
-          <strong>{stats.silence}</strong>
-          <span>个停顿</span>
         </div>
       </footer>
 

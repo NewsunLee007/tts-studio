@@ -433,16 +433,18 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
   }
 
   const startBlock = (qStart?: number, qEnd?: number, fallbackId?: string) => {
-    consumeInstructionGap()
     const count = questionCount(qStart, qEnd)
     const rangeLabel = formatRange(qStart, qEnd) || currentPlan.label
+    const preReadMs = currentPlan.preReadMsPerQuestion * count
+    if (preReadMs > 0) pendingInstructionGapMs = 0
+    else consumeInstructionGap()
     const nextBlock: DialogueBlock = {
       groupId: groupIdFor(qStart, qEnd, fallbackId || currentPlan.id),
       label: rangeLabel,
       qStart,
       qEnd,
       repeatCount: currentPlan.repeatCount,
-      preReadMs: currentPlan.preReadMsPerQuestion * count,
+      preReadMs,
       answerMs: currentPlan.perItemAnswerMs || currentPlan.answerMsPerQuestion * count,
       lines: []
     }
