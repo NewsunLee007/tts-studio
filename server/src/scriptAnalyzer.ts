@@ -375,6 +375,11 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
     pendingInstructionGapMs = 0
   }
 
+  const removeTrailingAnswerPause = () => {
+    const last = out[out.length - 1]
+    if (last?.type === "silence" && last.label === "作答时间") out.pop()
+  }
+
   const flushBlock = () => {
     if (!block || !block.lines.length) {
       block = null
@@ -510,7 +515,10 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
       const hadPendingInstructionGap = pendingInstructionGapMs > 0
       if (hadPendingInstructionGap) consumeInstructionGap(1000, "说明间隔")
       sectionIndex += 1
-      if (!hadPendingInstructionGap && sectionIndex > 1) pushSilence(majorBreakMs, "大题间隔", `section-gap-${sectionIndex}`, "大题或题组之间的全局间隔")
+      if (!hadPendingInstructionGap && sectionIndex > 1) {
+        removeTrailingAnswerPause()
+        pushSilence(majorBreakMs, "大题间隔", `section-gap-${sectionIndex}`, "大题或题组之间的全局间隔")
+      }
       currentPlan = buildPlan(line, currentPlan, sectionIndex)
       freeformIndex = 0
       freeformGroupId = currentPlan.id
