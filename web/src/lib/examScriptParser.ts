@@ -317,8 +317,18 @@ function mergeLines(input: string) {
   return merged
 }
 
+function englishNumberWord(value: number) {
+  const ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+  const teens = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+  const tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+  if (value >= 0 && value < 10) return ones[value]
+  if (value < 20) return teens[value - 10]
+  if (value < 100) return value % 10 ? `${tens[Math.floor(value / 10)]} ${ones[value % 10]}` : tens[Math.floor(value / 10)]
+  return String(value)
+}
+
 function questionMarkerText(number: number, style: "number" | "test") {
-  return `${style === "test" ? "Test" : "Number"} ${number}`
+  return `${style === "test" ? "Test" : "Number"} ${englishNumberWord(number)}`
 }
 
 function musicPresetDurationMs(presetId: "ding" | "piano") {

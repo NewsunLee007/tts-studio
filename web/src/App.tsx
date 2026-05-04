@@ -500,7 +500,7 @@ export default function App() {
     return previewItems.flatMap((item, index) => {
       const raw = item.groupId || item.label || ""
       const range = raw.match(/q-(\d+)(?:-(\d+))?/) || item.label?.match(/第\s*(\d+)(?:\s*(?:至|到|-)\s*(\d+))?\s*题/)
-      const label = range ? range[1] : /^(?:Number|Test)\s+\d+/i.test(item.label || "") ? (item.label || "").replace(/^(?:Number|Test)\s+/i, "") : ""
+      const label = range ? range[1] : /^(?:Number|Test)\s+(?:\d+|[a-z]+(?:\s+[a-z]+)?)/i.test(item.label || "") ? (item.label || "").replace(/^(?:Number|Test)\s+/i, "") : ""
       if (!label) return []
       const key = label
       if (seen.has(key)) return []
@@ -1895,7 +1895,7 @@ export default function App() {
               // 尝试从 ExamDraftSegment 类型获取 speakerTag
               const examItem = item as ExamDraftSegment
               const speakerTag = "speakerTag" in examItem && typeof examItem.speakerTag === "string" ? examItem.speakerTag : ""
-              const isQuestionMarker = speakerTag === "NARRATOR" && /^(?:Number|Test)\s+\d+/i.test(item.text.trim())
+              const isQuestionMarker = speakerTag === "NARRATOR" && /^(?:Number|Test)\s+(?:\d+|[a-z]+(?:\s+[a-z]+)?)/i.test(item.text.trim())
               const inferred =
                 speakerTag === "M" || speakerTag === "A" || item.label === "M" || item.label === "A"
                   ? ({ role: "male" as const, label: speakerTag || item.label || "M" })

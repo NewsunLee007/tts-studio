@@ -130,7 +130,7 @@ function groupKind(group: GeminiGroup) {
   if (nonQuestion.some(isIntro)) return { label: "导入", className: "badgeIntro" }
   if (!nonQuestion.length && tts.length) {
     const text = tts.map((s) => s.text.trim()).join(" ")
-    if (/^(?:Number|Test)\s+\d+/i.test(text)) return { label: "题号", className: "badgeQuestion" }
+    if (/^(?:Number|Test)\s+(?:\d+|[a-z]+(?:\s+[a-z]+)?)/i.test(text)) return { label: "题号", className: "badgeQuestion" }
     return { label: "说明", className: "badgeNarrator" }
   }
   if (nonQuestion.every((s) => s.role === "narrator" || s.role === "neutral")) return { label: "旁白", className: "badgeNarrator" }

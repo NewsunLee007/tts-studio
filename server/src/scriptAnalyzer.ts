@@ -337,8 +337,18 @@ function mergeLines(input: string) {
   return merged
 }
 
+function englishNumberWord(value: number) {
+  const ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+  const teens = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+  const tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+  if (value >= 0 && value < 10) return ones[value]
+  if (value < 20) return teens[value - 10]
+  if (value < 100) return value % 10 ? `${tens[Math.floor(value / 10)]} ${ones[value % 10]}` : tens[Math.floor(value / 10)]
+  return String(value)
+}
+
 function questionMarkerText(number: number, style: "number" | "test") {
-  return `${style === "test" ? "Test" : "Number"} ${number}`
+  return `${style === "test" ? "Test" : "Number"} ${englishNumberWord(number)}`
 }
 
 function musicPresetDurationMs(presetId: "ding" | "piano") {
@@ -608,7 +618,7 @@ function toAnalyzedSegment(item: DraftSegment): AnalyzedSegment {
   if (item.type === "music") return { type: "music", presetId: item.presetId, durationMs: item.durationMs, label: item.label, groupId: item.groupId }
   if (item.type === "silence") return { type: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId }
 
-  const question = /^(?:Number|Test)\s+\d+/i.test(item.text.trim())
+  const question = /^(?:Number|Test)\s+(?:\d+|[a-z]+(?:\s+[a-z]+)?)/i.test(item.text.trim())
   const role = question ? "question" : item.speakerTag === "NARRATOR" && hasChinese(item.text) ? "intro" : speakerRole(item.speakerTag)
   const stylePresetId: StylePresetId = question ? "question_marker" : role === "narrator" ? "teacher" : role === "intro" ? "exam_host" : "dialogue"
   const pacePreset: PacePresetId = role === "narrator" || role === "intro" || role === "question" ? "exam_slow" : "exam_standard"
