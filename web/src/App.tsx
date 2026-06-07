@@ -18,12 +18,14 @@ import type {
   ProvidersResponse,
   Segment,
   SegmentPatch,
+  TtsGenerationMeta,
   TtsSegment,
   VoiceGender
 } from "./types"
 
 type ApplyMode = "append" | "replace"
 type DirectorSegment = Segment & { stylePresetId?: string }
+type TtsResult = { id?: string; url?: string; error?: string; meta?: TtsGenerationMeta }
 
 function isSecondPassSegment(segment: Segment) {
   return segment.type === "tts" && /第\s*2\s*遍|第2遍/.test(segment.directorNote || "")
@@ -342,8 +344,11 @@ function languageRateDirective(text: string, template: ExamTemplate) {
 }
 
 function requestLanguageType(text: string, provider: ProviderId, languageType: string, accentLocale: string) {
+  if (provider === "dashscope") {
+    if (hasChineseText(text)) return "Chinese"
+    return languageType === "Auto" ? undefined : languageType
+  }
   if (hasChineseText(text)) return "zh-CN"
-  if (provider === "dashscope") return languageType
   return accentLocale === "en" ? undefined : accentLocale
 }
 
@@ -655,13 +660,13 @@ export default function App() {
       prev.map((item) => {
         if (item.uid !== segUid) {
           if (item.type === "tts" && "text" in patch && item.repeatOfUid === segUid) {
-            return { ...item, audioId: undefined, audioUrl: undefined, status: "idle", error: "" }
+            return { ...item, audioId: undefined, audioUrl: undefined, generationMeta: undefined, status: "idle", error: "" }
           }
           return item
         }
         const next = { ...item, ...patch } as Segment
         if (item.type === "tts" && "text" in patch && patch.text !== item.text) {
-          return { ...next, audioId: undefined, audioUrl: undefined, status: "idle", error: "" }
+          return { ...next, audioId: undefined, audioUrl: undefined, generationMeta: undefined, status: "idle", error: "" }
         }
         return next
       })
@@ -720,11 +725,12 @@ export default function App() {
       }
 
       if (item.kind === "silence") {
-        const startedAt = performance.now()
         const duration = Math.max(0, item.durationMs)
+        let elapsed = 0
         const timer = window.setInterval(() => {
           if (previewStopRef.current || previewRunIdRef.current !== runId) return
-          setPreviewItemProgress(duration ? Math.min(1, (performance.now() - startedAt) / duration) : 1)
+          elapsed += 120
+          setPreviewItemProgress(duration ? Math.min(1, elapsed / duration) : 1)
         }, 120)
         await delay(duration)
         window.clearInterval(timer)
@@ -800,7 +806,6 @@ export default function App() {
         await delay(duration)
         return
       }
-      const startedAt = performance.now()
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           window.clearInterval(timer)
@@ -818,7 +823,7 @@ export default function App() {
             resolve()
             return
           }
-          const elapsed = performance.now() - startedAt
+          const elapsed = audio.currentTime * 1000
           setPreviewItemProgress(Math.min(1, elapsed / duration))
           if (elapsed >= duration) {
             audio.pause()
@@ -863,10 +868,10 @@ export default function App() {
       return osc
     })
 
-    const startedAt = performance.now()
+    const startedAt = context.currentTime
     const timer = window.setInterval(() => {
       if (previewStopRef.current || previewRunIdRef.current !== runId) return
-      setPreviewItemProgress(Math.min(1, (performance.now() - startedAt) / duration))
+      setPreviewItemProgress(Math.min(1, ((context.currentTime - startedAt) * 1000) / duration))
     }, 80)
 
     await delay(duration)
@@ -905,7 +910,7 @@ export default function App() {
     setSegments((prev) =>
       prev.map((item) =>
         item.type === "tts" && (item.uid === segUid || item.repeatOfUid === segUid)
-          ? { ...item, audioId: undefined, audioUrl: undefined, status: "idle", error: "" }
+          ? { ...item, audioId: undefined, audioUrl: undefined, generationMeta: undefined, status: "idle", error: "" }
           : item
       )
     )
@@ -1051,6 +1056,7 @@ export default function App() {
           repeatOfUid: item.uid,
           audioId: undefined,
           audioUrl: undefined,
+          generationMeta: undefined,
           status: "idle" as const,
           error: "",
           directorNote: item.directorNote?.replace(/第1遍/g, "第2遍") || "第2遍；复用第1遍音频。"
@@ -1062,12 +1068,28 @@ export default function App() {
     })
   }
 
-  function voiceForRole(role?: string) {
+  function voiceForRole(role?: string, text?: string) {
     const voices = providerConfig?.voices || []
+    if (text && hasChineseText(text)) {
+      const roleMatch = role === "male" || role === "female" ? "dialogue" : "narrator"
+      const byChineseRole = voices.find((voice) => voice.locale === "zh-CN" && voice.role === roleMatch)
+      const byChineseGender = voices.find((voice) => voice.locale === "zh-CN" && (role === "male" || role === "female" ? voice.gender === role : true))
+      const byChineseAny = voices.find((voice) => voice.locale === "zh-CN")
+      if (byChineseRole || byChineseGender || byChineseAny) return (byChineseRole || byChineseGender || byChineseAny)?.id || ""
+    }
     const byAccent = preferredVoiceForAccent(role)
     const byGender = role === "male" ? voices.find((voice) => voice.gender === "male") : role === "female" ? voices.find((voice) => voice.gender === "female") : undefined
     const byRole = voices.find((voice) => voice.role === (role === "question" ? "question" : role === "male" || role === "female" ? "dialogue" : "narrator"))
     return byAccent?.id || byGender?.id || byRole?.id || voiceId || providerConfig?.defaultVoiceId || ""
+  }
+
+  function voiceForSegmentRequest(seg: TtsSegment, text: string) {
+    const voices = providerConfig?.voices || []
+    const selected = voices.find((voice) => voice.id === seg.voiceId)
+    if (hasChineseText(text) && selected?.locale && selected.locale !== "zh-CN") {
+      return voiceForRole(seg.role, text) || seg.voiceId || voiceId
+    }
+    return seg.voiceId || voiceForRole(seg.role, text) || voiceId
   }
 
   async function requestSegmentTts(seg: TtsSegment, text = seg.text) {
@@ -1079,25 +1101,25 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-        provider,
-        credentials,
-        baseUrl,
-        model: modelToUse,
-        languageType: requestLanguageType(text, provider, languageType, accentOption.locale),
-        text,
-        voice: seg.voiceId || voiceForRole(seg.role) || voiceId,
-        stylePresetId: seg.stylePresetId || stylePresetId,
-        stylePrompt: seg.stylePrompt || stylePrompt,
-        directorNote: [accentDirectorNote(), languageRateDirective(text, template), seg.directorNote].filter(Boolean).join("\n"),
-        speed: targetSpeedForText(text, template),
-        pitch: seg.pitch || 1,
-        volume: seg.volume || 1
-      })
+          provider,
+          credentials,
+          baseUrl,
+          model: modelToUse,
+          languageType: requestLanguageType(text, provider, languageType, accentOption.locale),
+          text,
+          voice: voiceForSegmentRequest(seg, text),
+          stylePresetId: seg.stylePresetId || stylePresetId,
+          stylePrompt: seg.stylePrompt || stylePrompt,
+          directorNote: [accentDirectorNote(), languageRateDirective(text, template), seg.directorNote].filter(Boolean).join("\n"),
+          speed: targetSpeedForText(text, template),
+          pitch: seg.pitch || 1,
+          volume: seg.volume || 1
+        })
       })
       const rawText = await res.text()
       const json = (() => {
         try {
-          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
+          return JSON.parse(rawText) as TtsResult
         } catch {
           return { error: rawText }
         }
@@ -1129,7 +1151,7 @@ export default function App() {
       const rawText = await res.text()
       const json = (() => {
         try {
-          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
+          return JSON.parse(rawText) as TtsResult
         } catch {
           return { error: rawText }
         }
@@ -1163,7 +1185,7 @@ export default function App() {
       type: "tts",
       text: item.text,
       label: item.label,
-      voiceId: voiceForRole(item.role),
+      voiceId: voiceForRole(item.role, item.text),
       modelId,
       stylePresetId: item.stylePresetId || "",
       stylePrompt: "",
@@ -1281,7 +1303,7 @@ export default function App() {
             model: modelId,
             languageType: requestLanguageType(combinedText, provider, languageType, accentOption.locale),
             text: combinedText,
-            voice: question.voiceId || container.voiceId || voiceId,
+            voice: voiceForSegmentRequest(question, combinedText) || voiceForSegmentRequest(container, combinedText),
             stylePresetId: question.stylePresetId || container.stylePresetId || stylePresetId,
             stylePrompt: question.stylePrompt || container.stylePrompt || stylePrompt,
             directorNote: [accentDirectorNote(), languageRateDirective(combinedText, template), question.directorNote].filter(Boolean).join("\n"),
@@ -1292,7 +1314,11 @@ export default function App() {
 
         setSegments((prev) => {
           const containerUid = container.uid
-          return prev.map((item) => (item.type === "tts" && item.uid === containerUid ? { ...item, text: combinedText, audioId: json.id, audioUrl: json.url, status: "done", error: "" } : item))
+          return prev.map((item) =>
+            item.type === "tts" && item.uid === containerUid
+              ? { ...item, text: combinedText, audioId: json.id, audioUrl: json.url, generationMeta: json.meta, status: "done", error: "" }
+              : item
+          )
         })
         return true
       }
@@ -1340,15 +1366,15 @@ export default function App() {
           return prev.map((item) => {
             if (!isTtsSegment(item)) return item
             if (item.uid === containerUid) {
-              return { ...item, providerOverrides: { ...(item.providerOverrides || {}), generatedGroupText: combinedText }, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
+              return { ...item, providerOverrides: { ...(item.providerOverrides || {}), generatedGroupText: combinedText }, audioId: json.id, audioUrl: json.url, generationMeta: json.meta, status: "done", error: "" }
             }
             if (item.repeatOfUid === containerUid) {
-              return { ...item, status: "done", error: "" }
+              return { ...item, generationMeta: json.meta, status: "done", error: "" }
             }
             if (item.groupId !== groupId) return item
             if (isQuestionRole(item)) return item
             if (secondContainer && item.uid === secondContainer.uid) {
-              return { ...item, repeatOfUid: containerUid, audioId: "", audioUrl: "", status: "done", error: "" }
+              return { ...item, repeatOfUid: containerUid, audioId: "", audioUrl: "", generationMeta: json.meta, status: "done", error: "" }
             }
             return { ...item, status: "skipped", error: "" }
           })
@@ -1365,7 +1391,7 @@ export default function App() {
           model: modelId,
           languageType: requestLanguageType(combinedText, provider, languageType, accentOption.locale),
           text: combinedText,
-          voice: container.voiceId || voiceId,
+          voice: voiceForSegmentRequest(container, combinedText),
           stylePresetId: container.stylePresetId || stylePresetId,
           stylePrompt: container.stylePrompt || stylePrompt,
           directorNote: [accentDirectorNote(), languageRateDirective(combinedText, template), container.directorNote].filter(Boolean).join("\n"),
@@ -1380,15 +1406,15 @@ export default function App() {
         return prev.map((item) => {
             if (!isTtsSegment(item)) return item
             if (item.uid === containerUid) {
-            return { ...item, providerOverrides: { ...(item.providerOverrides || {}), generatedGroupText: combinedText }, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
+            return { ...item, providerOverrides: { ...(item.providerOverrides || {}), generatedGroupText: combinedText }, audioId: json.id, audioUrl: json.url, generationMeta: json.meta, status: "done", error: "" }
           }
           if (item.repeatOfUid === containerUid) {
-            return { ...item, status: "done", error: "" }
+            return { ...item, generationMeta: json.meta, status: "done", error: "" }
           }
           if (item.groupId !== groupId) return item
           if (isQuestionRole(item)) return item
           if (secondContainer && item.uid === secondContainer.uid) {
-            return { ...item, repeatOfUid: containerUid, audioId: "", audioUrl: "", status: "done", error: "" }
+            return { ...item, repeatOfUid: containerUid, audioId: "", audioUrl: "", generationMeta: json.meta, status: "done", error: "" }
           }
           return { ...item, status: "skipped", error: "" }
         })
@@ -1426,7 +1452,7 @@ export default function App() {
         const json = await requestSegmentTts(item)
         setSegments((prev) => prev.map((segment) => {
           if (segment.type !== "tts") return segment
-          if (segment.uid === item.uid || segment.repeatOfUid === item.uid) return { ...segment, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
+          if (segment.uid === item.uid || segment.repeatOfUid === item.uid) return { ...segment, audioId: json.id, audioUrl: json.url, generationMeta: json.meta, status: "done", error: "" }
           return segment
         }))
         if (provider === "dashscope" && targets.length > 1) await delay(1200)
@@ -1461,7 +1487,7 @@ export default function App() {
     if (seg.repeatOfUid) {
       const source = segments.find((item): item is TtsSegment => isTtsSegment(item) && item.uid === seg.repeatOfUid)
       if (source?.audioId && source.audioUrl) {
-        updateSegment(seg.uid, { audioId: source.audioId, audioUrl: source.audioUrl, status: "done", error: "" })
+        updateSegment(seg.uid, { audioId: source.audioId, audioUrl: source.audioUrl, generationMeta: source.generationMeta, status: "done", error: "" })
         return true
       }
       updateSegment(seg.uid, { status: "error", error: "复用片段需要先生成第 1 遍音频" })
@@ -1495,7 +1521,7 @@ export default function App() {
           model: modelToUse,
           languageType: requestLanguageType(seg.text, provider, languageType, accentOption.locale),
           text: seg.text,
-          voice: seg.voiceId || voiceId,
+          voice: voiceForSegmentRequest(seg, seg.text),
           stylePresetId: seg.stylePresetId || stylePresetId,
           stylePrompt: seg.stylePrompt || stylePrompt,
           directorNote: [accentDirectorNote(), languageRateDirective(seg.text, template), seg.directorNote].filter(Boolean).join("\n"),
@@ -1507,7 +1533,7 @@ export default function App() {
       const rawText = await res.text()
       const json = (() => {
         try {
-          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
+          return JSON.parse(rawText) as TtsResult
         } catch {
           return { error: rawText }
         }
@@ -1516,7 +1542,7 @@ export default function App() {
       setSegments((prev) =>
         prev.map((item) =>
           item.type === "tts" && (item.uid === segUid || item.repeatOfUid === segUid)
-            ? { ...item, audioId: json.id, audioUrl: json.url, status: "done", error: "" }
+            ? { ...item, audioId: json.id, audioUrl: json.url, generationMeta: json.meta, status: "done", error: "" }
             : item
         )
       )
@@ -1662,7 +1688,7 @@ export default function App() {
       const rawText = await res.text()
       const json = (() => {
         try {
-          return JSON.parse(rawText) as { id?: string; url?: string; error?: string }
+          return JSON.parse(rawText) as TtsResult
         } catch {
           return { error: rawText }
         }
@@ -1687,6 +1713,7 @@ export default function App() {
           speed: speedForPace(item.pacePreset || pacePreset, next),
           audioId: undefined,
           audioUrl: undefined,
+          generationMeta: undefined,
           status: item.text.trim() ? ("idle" as const) : item.status,
           error: item.audioId ? "语速已更新，请重新生成该片段" : item.error
         }
@@ -1706,6 +1733,7 @@ export default function App() {
           speed: targetSpeedForText(item.text, { ...template, englishWordsPerMinute: nextEnglish, chineseCharsPerMinute: nextChinese }),
           audioId: undefined,
           audioUrl: undefined,
+          generationMeta: undefined,
           status: item.text.trim() ? ("idle" as const) : item.status,
           error: item.audioId ? "目标语速已更新，请重新生成该片段" : item.error
         }
@@ -1728,12 +1756,13 @@ export default function App() {
     setSegments((prev) =>
       prev.map((item) => {
         if (item.type !== "tts") return item
-        const roleVoice = nextVoice || voiceForRole(item.role)
+        const roleVoice = nextVoice || voiceForRole(item.role, item.text)
         return {
           ...item,
           voiceId: roleVoice || item.voiceId,
           audioId: undefined,
           audioUrl: undefined,
+          generationMeta: undefined,
           status: item.text.trim() ? ("idle" as const) : item.status,
           error: item.audioId ? "发音标准已更新，请重新生成该片段" : item.error
         }
@@ -1914,7 +1943,7 @@ export default function App() {
                 type: "tts" as const,
                 text: item.text,
                 label: inferred.label,
-                voiceId: voiceForRole(inferred.role),
+                voiceId: voiceForRole(inferred.role, item.text),
                 modelId,
                 stylePresetId: inferred.role === "question" ? "question_marker" : inferred.role === "male" || inferred.role === "female" ? "dialogue" : inferred.role === "intro" ? "exam_host" : "",
                 stylePrompt: "",

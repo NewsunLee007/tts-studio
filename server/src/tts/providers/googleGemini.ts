@@ -312,5 +312,22 @@ export async function googleGeminiDialogueTts(args: {
   const bytes = Buffer.from(data, "base64")
   const wavBytes = typeof mimeType === "string" && /wav/i.test(mimeType) ? bytes : pcm16ToWav(bytes, 24000, 1)
   const paced = await applyTempo(wavBytes, typeof args.speed === "number" ? args.speed : 1)
-  return { bytes: paced, format: "wav" }
+  return {
+    bytes: paced,
+    format: "wav",
+    meta: {
+      provider: "google_gemini",
+      requestedModel: model,
+      usedModel: model,
+      requestedVoice: speakerVoiceConfigs.map((item) => item.voiceConfig.prebuiltVoiceConfig.voiceName).join(" / "),
+      usedVoice: speakerVoiceConfigs.map((item) => `${item.speaker}:${item.voiceConfig.prebuiltVoiceConfig.voiceName}`).join(" / "),
+      instructionMode: "sent",
+      warnings: [],
+      requestSummary: [
+        { label: "接口", value: "Gemini multiSpeakerVoiceConfig" },
+        { label: "说话人", value: speakerVoiceConfigs.map((item) => item.speaker).join(" / ") },
+        { label: "语速", value: typeof args.speed === "number" ? args.speed.toFixed(2) : "默认" }
+      ]
+    }
+  }
 }

@@ -25,15 +25,19 @@ export async function xfyunTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   if (!globalThis.WebSocket) throw new Error("Current Node runtime does not provide WebSocket for XFYun TTS")
 
   const url = signUrl(req.baseUrl || "wss://tts-api.xfyun.cn/v2/tts", apiKey, apiSecret)
+  const voice = req.voice || "xiaoyan"
+  const speed = xfyunSpeed(req.speed)
+  const volume = Math.max(0, Math.min(100, Math.round((req.volume || 1) * 50)))
+  const pitch = Math.max(0, Math.min(100, Math.round((req.pitch || 1) * 50)))
   const payload = {
     common: { app_id: appId },
     business: {
       aue: "lame",
       sfl: 1,
-      vcn: req.voice || "xiaoyan",
-      speed: xfyunSpeed(req.speed),
-      volume: Math.max(0, Math.min(100, Math.round((req.volume || 1) * 50))),
-      pitch: Math.max(0, Math.min(100, Math.round((req.pitch || 1) * 50))),
+      vcn: voice,
+      speed,
+      volume,
+      pitch,
       bgs: 0,
       tte: "UTF8"
     },
@@ -64,7 +68,26 @@ export async function xfyunTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
         if (json.data?.status === 2) {
           clearTimeout(timer)
           ws.close()
-          resolve({ bytes: Buffer.concat(chunks), format: "mp3" })
+          resolve({
+            bytes: Buffer.concat(chunks),
+            format: "mp3",
+            meta: {
+              provider: "xfyun",
+              requestedModel: req.model,
+              usedModel: req.model || "standard",
+              requestedVoice: req.voice,
+              usedVoice: voice,
+              instructionMode: req.stylePrompt ? "suppressed" : "not-supported",
+              languageType: req.languageType,
+              warnings: req.stylePrompt ? ["讯飞在线语音合成不发送自然语言导演指令；使用 vcn、speed、pitch、volume 控制。"] : [],
+              requestSummary: [
+                { label: "接口", value: "WebSocket v2" },
+                { label: "speed", value: String(speed) },
+                { label: "pitch", value: String(pitch) },
+                { label: "volume", value: String(volume) }
+              ]
+            }
+          })
         }
       } catch (err) {
         clearTimeout(timer)

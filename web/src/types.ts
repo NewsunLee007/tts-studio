@@ -94,6 +94,18 @@ export type SegmentRole = "intro" | "question" | "narrator" | "male" | "female" 
 
 export type QueueStatus = "idle" | "queued" | "generating" | "done" | "error" | "skipped"
 
+export type TtsGenerationMeta = {
+  provider: string
+  requestedModel?: string
+  usedModel?: string
+  requestedVoice?: string
+  usedVoice?: string
+  instructionMode?: "sent" | "suppressed" | "not-supported"
+  languageType?: string
+  warnings?: string[]
+  requestSummary?: Array<{ label: string; value: string }>
+}
+
 export type TtsSegment = {
   uid: string
   type: "tts"
@@ -112,6 +124,7 @@ export type TtsSegment = {
   pitch?: number
   volume?: number
   providerOverrides?: Record<string, unknown>
+  generationMeta?: TtsGenerationMeta
   repeatOfUid?: string
   audioId?: string
   audioUrl?: string

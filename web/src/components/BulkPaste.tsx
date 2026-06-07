@@ -46,7 +46,7 @@ Hello, welcome to our school radio station. Today we are going to meet a new fri
 export function BulkPaste(props: Props) {
   const [text, setText] = useState("")
   const [mode, setMode] = useState<InputMode>("exam")
-  const [applyMode, setApplyMode] = useState<ApplyMode>("append")
+  const [applyMode, setApplyMode] = useState<ApplyMode>("replace")
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const parsed = useMemo(() => {
@@ -62,7 +62,7 @@ export function BulkPaste(props: Props) {
         </div>
         <div className="cardActionsInline bulkActions">
           <button className="btnPrimary" type="button" onClick={() => props.onAnalyze(text, applyMode)} disabled={!text.trim() || props.analyzing}>
-            {props.analyzing ? "拆分中…" : "按题生成片段"}
+            {props.analyzing ? "拆分中…" : "智能按题拆分"}
           </button>
           {mode === "exam" ? (
             <button
@@ -91,7 +91,7 @@ export function BulkPaste(props: Props) {
             </button>
           ) : null}
           <button className="btn" type="button" onClick={() => props.onApply(parsed, applyMode)} disabled={!parsed.length}>
-            基础拆分
+            简单拆分
           </button>
           <button className="btnGhost" type="button" onClick={() => setText("")} disabled={!text.trim()}>
             清空
@@ -111,8 +111,8 @@ export function BulkPaste(props: Props) {
       <div className="cardGrid bulkControlsGrid compactControls">
         <label className="field">
           <div className="label">拆分规则</div>
-          <select value={mode} onChange={(e) => setMode(e.target.value as InputMode)}>
-            <option value="exam">听力试卷（M/W/A/B + 旁白 + 10s/5s + 读两遍）</option>
+          <select aria-label="拆分规则" value={mode} onChange={(e) => setMode(e.target.value as InputMode)}>
+            <option value="exam">听力试卷（推荐：识别题号、旁白、角色、停顿、读两遍）</option>
             <option value="blank">空行分段</option>
             <option value="line">每行一段</option>
             <option value="dialogue">对白（Speaker: text）</option>
@@ -121,9 +121,9 @@ export function BulkPaste(props: Props) {
 
         <label className="field">
           <div className="label">应用方式</div>
-          <select value={applyMode} onChange={(e) => setApplyMode(e.target.value as ApplyMode)}>
-            <option value="append">追加到末尾</option>
+          <select aria-label="应用方式" value={applyMode} onChange={(e) => setApplyMode(e.target.value as ApplyMode)}>
             <option value="replace">覆盖当前列表</option>
+            <option value="append">追加到末尾</option>
           </select>
         </label>
       </div>

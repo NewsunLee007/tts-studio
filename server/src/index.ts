@@ -268,12 +268,44 @@ function defaultTargetSpeed(text: string) {
   return hasChineseText(text) ? 210 / 250 : 118 / 150
 }
 
+function supportsNaturalLanguageInstructions(provider: ProviderId, model?: string) {
+  const value = model || providerConfig(provider)?.defaultModelId || ""
+  if (provider === "openai") return /gpt-4o/i.test(value)
+  if (provider === "google_gemini") return true
+  if (provider === "dashscope") return /instruct/i.test(value)
+  return false
+}
+
+function instructionMode(provider: ProviderId, model: string | undefined, stylePrompt: string | undefined) {
+  if (!stylePrompt) return "not-supported" as const
+  return supportsNaturalLanguageInstructions(provider, model) ? ("sent" as const) : ("suppressed" as const)
+}
+
+function genericTtsMeta(provider: ProviderId, body: Partial<TtsRequestBody>, req: UnifiedTtsRequest, mode: "sent" | "suppressed" | "not-supported") {
+  const warnings = mode === "suppressed" ? [`${providerConfig(provider)?.label || provider} 当前模型不发送自然语言导演指令；已降级为文本、音色、语速、音高、音量控制。`] : []
+  return {
+    provider,
+    requestedModel: body.model,
+    usedModel: body.model || providerConfig(provider)?.defaultModelId,
+    requestedVoice: body.voice,
+    usedVoice: body.voice || providerConfig(provider)?.defaultVoiceId,
+    instructionMode: mode,
+    languageType: req.languageType,
+    warnings,
+    requestSummary: [
+      { label: "文本长度", value: `${req.text.length} 字符` },
+      { label: "语速", value: typeof req.speed === "number" ? req.speed.toFixed(2) : "默认" },
+      { label: "指令", value: mode === "sent" ? "已发送" : "未发送" }
+    ]
+  }
+}
+
 async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
   const provider = body.provider || "openai"
   const credentials = body.credentials || (body.apiKey ? { apiKey: body.apiKey } : {})
   const phonics = preparePhonicsRequest(body.text || "", body.stylePresetId)
   const preset = body.stylePresetId ? stylePresets.find((p) => p.id === body.stylePresetId) : undefined
-  const stylePrompt = stableStyleContract(
+  const rawStylePrompt = stableStyleContract(
     {
       ...body,
       text: phonics.text,
@@ -281,6 +313,8 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
     },
     preset?.prompt
   )
+  const mode = instructionMode(provider, body.model, rawStylePrompt)
+  const stylePrompt = provider === "dashscope" ? rawStylePrompt : mode === "sent" ? rawStylePrompt : undefined
   const req: UnifiedTtsRequest = {
     credentials,
     text: phonics.text,
@@ -298,14 +332,16 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
     throw new Error(`${provider} is configured as a future adapter. It is not available in this build.`)
   }
 
-  if (provider === "openai") return openAiTts(req)
-  if (provider === "dashscope") return dashscopeTts(req)
-  if (provider === "google") return googleTts(req)
-  if (provider === "google_gemini") return googleGeminiTts(req)
-  if (provider === "volcengine") return volcengineTts(req)
-  if (provider === "xfyun") return xfyunTts(req)
-  if (provider === "tencent") return tencentTts(req)
-  throw new Error(`Unsupported provider: ${provider}`)
+  let audio: TtsAudio
+  if (provider === "openai") audio = await openAiTts(req)
+  else if (provider === "dashscope") audio = await dashscopeTts(req)
+  else if (provider === "google") audio = await googleTts(req)
+  else if (provider === "google_gemini") audio = await googleGeminiTts(req)
+  else if (provider === "volcengine") audio = await volcengineTts(req)
+  else if (provider === "xfyun") audio = await xfyunTts(req)
+  else if (provider === "tencent") audio = await tencentTts(req)
+  else throw new Error(`Unsupported provider: ${provider}`)
+  return { ...audio, meta: audio.meta || genericTtsMeta(provider, body, req, mode) }
 }
 
 async function writeAudioToMp3(id: string, audio: TtsAudio) {
@@ -509,7 +545,7 @@ export async function createApp() {
         speed
       })
       await writeAudioToMp3(id, audio)
-      res.json({ id, url: `/audio/${id}.mp3` })
+      res.json({ id, url: `/audio/${id}.mp3`, meta: audio.meta })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       const status = typeof message === "string" ? statusFromProviderError(message) : null
@@ -529,7 +565,7 @@ export async function createApp() {
       const id = randomUUID()
       const audio = await synthesize(body)
       await writeAudioToMp3(id, audio)
-      res.json({ id, url: `/audio/${id}.mp3` })
+      res.json({ id, url: `/audio/${id}.mp3`, meta: audio.meta })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       const status = typeof message === "string" ? statusFromProviderError(message) : null

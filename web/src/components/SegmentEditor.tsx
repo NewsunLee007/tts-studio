@@ -1,4 +1,4 @@
-import type { ProviderId, Segment, SegmentPatch, TtsSegment, VoiceGender, VoicePreset } from "../types"
+import type { ProviderId, Segment, SegmentPatch, TtsGenerationMeta, TtsSegment, VoiceGender, VoicePreset } from "../types"
 
 type Props = {
   provider: ProviderId
@@ -59,6 +59,12 @@ function roleClass(segment: TtsSegment) {
   if (segment.role === "male") return "turnBadgeMale"
   if (segment.role === "question") return "turnBadgeQuestion"
   return "turnBadgeNarrator"
+}
+
+function instructionLabel(mode?: TtsGenerationMeta["instructionMode"]) {
+  if (mode === "sent") return "导演指令已发送"
+  if (mode === "suppressed") return "导演指令未发送"
+  return "无导演指令"
 }
 
 export function SegmentEditor(props: Props) {
@@ -133,6 +139,7 @@ export function SegmentEditor(props: Props) {
             <label className="field">
               <div className="label">音乐类型</div>
               <select
+                aria-label="音乐类型"
                 value={seg.presetId}
                 onChange={(e) => {
                   const presetId = e.target.value as "warmup" | "bell" | "soft" | "piano" | "ding"
@@ -281,6 +288,7 @@ export function SegmentEditor(props: Props) {
           <label className="field">
             <div className="label">Voice（留空使用全局默认）</div>
             <select
+              aria-label="Voice"
               value={seg.voiceId || props.globalVoiceId}
               onChange={(e) => props.onUpdate(seg.uid, { voiceId: e.target.value })}
             >
@@ -295,6 +303,7 @@ export function SegmentEditor(props: Props) {
           <label className="field">
             <div className="label">风格预设</div>
             <select
+              aria-label="风格预设"
               value={seg.stylePresetId || ""}
               onChange={(e) => props.onUpdate(seg.uid, { stylePresetId: e.target.value })}
             >
@@ -322,6 +331,43 @@ export function SegmentEditor(props: Props) {
           <div className="directorNote">
             <strong>导演提示</strong>
             <span>{seg.directorNote}</span>
+          </div>
+        ) : null}
+
+        {seg.generationMeta ? (
+          <div className="generationMeta">
+            <div className="generationMetaHead">
+              <strong>实际生成参数</strong>
+              <span>{instructionLabel(seg.generationMeta.instructionMode)}</span>
+            </div>
+            <div className="generationMetaGrid">
+              <div>
+                <span>模型</span>
+                <strong>{seg.generationMeta.usedModel || seg.modelId || "默认"}</strong>
+              </div>
+              <div>
+                <span>音色</span>
+                <strong>{seg.generationMeta.usedVoice || seg.voiceId || props.globalVoiceId || "默认"}</strong>
+              </div>
+              <div>
+                <span>语言</span>
+                <strong>{seg.generationMeta.languageType || "自动"}</strong>
+              </div>
+            </div>
+            {seg.generationMeta.requestSummary?.length ? (
+              <div className="generationMetaSummary">
+                {seg.generationMeta.requestSummary.map((item) => (
+                  <span key={`${item.label}-${item.value}`}>{item.label}: {item.value}</span>
+                ))}
+              </div>
+            ) : null}
+            {seg.generationMeta.warnings?.length ? (
+              <div className="generationWarnings">
+                {seg.generationMeta.warnings.map((warning) => (
+                  <span key={warning}>{warning}</span>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

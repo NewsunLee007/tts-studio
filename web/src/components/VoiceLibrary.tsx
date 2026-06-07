@@ -79,7 +79,7 @@ export function VoiceLibrary(props: Props) {
           </label>
           <label className="field">
             <div className="label">性别</div>
-            <select value={gender} onChange={(e) => setGender(e.target.value as VoiceGender)}>
+            <select aria-label="性别" value={gender} onChange={(e) => setGender(e.target.value as VoiceGender)}>
               <option value="female">female</option>
               <option value="male">male</option>
               <option value="neutral">neutral</option>
@@ -136,4 +136,3 @@ export function VoiceLibrary(props: Props) {
     </div>
   )
 }
-

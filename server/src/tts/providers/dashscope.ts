@@ -109,6 +109,10 @@ function isUnsupportedQwenVoiceError(errorText: string) {
   return /Voice .* is not supported|voice.*not.*supported|Input should be .*input\.voice/i.test(errorText)
 }
 
+function qwenModelSupportsInstructions(model: string) {
+  return /instruct/i.test(model)
+}
+
 export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   const apiKey = req.credentials.apiKey
   if (!apiKey) throw new Error("DashScope API Key required")
@@ -131,6 +135,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   let errorText = ""
   let usedModel = preferredModel
   let usedVoice = preferredVoice
+  const warnings: string[] = []
 
   for (const model of modelAttempts) {
     for (const voice of voiceAttempts) {
@@ -143,7 +148,8 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
       }
       if (textPayload.ssml) input.text_type = "ssml"
       if (req.languageType) input.language_type = req.languageType
-      if (req.stylePrompt) {
+      const canSendInstructions = qwenModelSupportsInstructions(model)
+      if (req.stylePrompt && canSendInstructions) {
         input.instructions = normalizeInstructions(req.stylePrompt)
         input.optimize_instructions = false
       }
@@ -175,11 +181,32 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
     throw new Error(`DashScope TTS error: ${errorText || "model fallback failed"}`)
   }
 
+  if (usedModel !== preferredModel) warnings.push(`模型已自动回退：${preferredModel} -> ${usedModel}`)
+  if (usedVoice !== preferredVoice) warnings.push(`音色已自动回退：${preferredVoice} -> ${usedVoice}`)
+  if (req.stylePrompt && !qwenModelSupportsInstructions(usedModel)) {
+    warnings.push(`${usedModel} 不发送导演指令；当前仅使用文本、音色、语言和语速控制。`)
+  }
+  const meta = {
+    provider: "dashscope",
+    requestedModel: preferredModel,
+    usedModel,
+    requestedVoice: preferredVoice,
+    usedVoice,
+    instructionMode: req.stylePrompt ? (qwenModelSupportsInstructions(usedModel) ? "sent" as const : "suppressed" as const) : "not-supported" as const,
+    languageType: req.languageType,
+    warnings,
+    requestSummary: [
+      { label: "接口", value: "Qwen multimodal-generation" },
+      { label: "文本模式", value: dashscopeTextPayload(req.text).ssml ? "SSML" : "plain" },
+      { label: "指令", value: req.stylePrompt && qwenModelSupportsInstructions(usedModel) ? "已发送" : "未发送" }
+    ]
+  }
+
   const json = await res.json().catch(() => null)
   const { audioUrl, audioBase64 } = parseDashscopeAudio(json)
 
   if (typeof audioBase64 === "string" && audioBase64) {
-    return { bytes: Buffer.from(audioBase64, "base64"), format: "wav" }
+    return { bytes: Buffer.from(audioBase64, "base64"), format: "wav", meta }
   }
 
   if (typeof audioUrl === "string" && audioUrl) {
@@ -191,7 +218,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
     const audioCt = audioRes.headers.get("content-type") || ""
     const arrayBuffer = await audioRes.arrayBuffer()
     const format = audioCt.includes("wav") || audioUrl.toLowerCase().includes(".wav") ? "wav" : "mp3"
-    return { bytes: Buffer.from(arrayBuffer), format }
+    return { bytes: Buffer.from(arrayBuffer), format, meta }
   }
 
   throw new Error(`Unexpected DashScope response: audio payload not found (model ${usedModel}, voice ${usedVoice})`)
@@ -200,6 +227,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
 async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string, model: string): Promise<TtsAudio> {
   const url = `${base}/services/audio/tts/SpeechSynthesizer`
   const preferredVoice = compatibleCosyVoice(model, req.voice)
+  const requestedVoice = req.voice || ""
   const textPayload = dashscopeTextPayload(req.text)
   const input: Record<string, unknown> = {
     text: textPayload.text,
@@ -219,6 +247,26 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
 
   // CosyVoice system voices only accept model/voice-specific instruction formats.
   // Avoid sending arbitrary project prompts here; use text, voice, rate, pitch and volume for stability.
+  const warnings = [
+    req.stylePrompt ? "CosyVoice 路径不发送全局导演指令；使用音色、语言提示、语速、音高和音量保证稳定性。" : "",
+    requestedVoice && requestedVoice !== preferredVoice ? `CosyVoice 音色已适配：${requestedVoice} -> ${preferredVoice}` : ""
+  ].filter(Boolean)
+  const meta = {
+    provider: "dashscope",
+    requestedModel: model,
+    usedModel: model,
+    requestedVoice: requestedVoice || preferredVoice,
+    usedVoice: preferredVoice,
+    instructionMode: req.stylePrompt ? "suppressed" as const : "not-supported" as const,
+    languageType: req.languageType,
+    warnings,
+    requestSummary: [
+      { label: "接口", value: "CosyVoice SpeechSynthesizer" },
+      { label: "文本模式", value: textPayload.ssml ? "SSML" : "plain" },
+      { label: "采样率", value: "24000" },
+      { label: "指令", value: "未发送" }
+    ]
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -238,7 +286,7 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
   const { audioUrl, audioBase64 } = parseDashscopeAudio(json)
 
   if (typeof audioBase64 === "string" && audioBase64) {
-    return { bytes: Buffer.from(audioBase64, "base64"), format: "mp3" }
+    return { bytes: Buffer.from(audioBase64, "base64"), format: "mp3", meta }
   }
 
   if (typeof audioUrl === "string" && audioUrl) {
@@ -248,7 +296,7 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
       throw new Error(`DashScope CosyVoice audio fetch error (${audioRes.status}): ${text || audioRes.statusText}`)
     }
     const arrayBuffer = await audioRes.arrayBuffer()
-    return { bytes: Buffer.from(arrayBuffer), format: audioUrl.toLowerCase().includes(".wav") ? "wav" : "mp3" }
+    return { bytes: Buffer.from(arrayBuffer), format: audioUrl.toLowerCase().includes(".wav") ? "wav" : "mp3", meta }
   }
 
   throw new Error(`Unexpected DashScope CosyVoice response: audio payload not found`)

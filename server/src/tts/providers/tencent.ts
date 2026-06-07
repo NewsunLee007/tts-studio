@@ -13,6 +13,10 @@ function speedToTencent(speed = 1) {
   return Math.max(-2, Math.min(2, Math.round((speed - 1) * 4)))
 }
 
+function volumeToTencent(volume = 1) {
+  return Math.max(0, Math.min(10, Math.round(volume * 5)))
+}
+
 export async function tencentTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   const secretId = req.credentials.secretId
   const secretKey = req.credentials.secretKey
@@ -26,16 +30,20 @@ export async function tencentTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   const version = "2019-08-23"
   const timestamp = Math.floor(Date.now() / 1000)
   const date = new Date(timestamp * 1000).toISOString().slice(0, 10)
+  const voice = Number(req.voice || 10510000)
+  if (!Number.isFinite(voice)) throw new Error(`Tencent VoiceType must be numeric, got: ${req.voice}`)
+  const speed = speedToTencent(req.speed)
+  const volume = volumeToTencent(req.volume)
 
   const payload = JSON.stringify({
     Text: req.text,
     SessionId: `tts-studio-${timestamp}`,
     ModelType: 1,
-    VoiceType: Number(req.voice || 10510000),
+    VoiceType: voice,
     Codec: "mp3",
     SampleRate: 16000,
-    Speed: speedToTencent(req.speed),
-    Volume: Math.round((req.volume || 1) * 5)
+    Speed: speed,
+    Volume: volume
   })
 
   const canonicalRequest = ["POST", "/", "", `content-type:application/json; charset=utf-8\nhost:${host}\n`, "content-type;host", sha256(payload)].join("\n")
@@ -67,5 +75,24 @@ export async function tencentTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   }
   const audio = json?.Response?.Audio
   if (!audio) throw new Error("Tencent TTS response missing Audio")
-  return { bytes: Buffer.from(audio, "base64"), format: "mp3" }
+  return {
+    bytes: Buffer.from(audio, "base64"),
+    format: "mp3",
+    meta: {
+      provider: "tencent",
+      requestedModel: req.model,
+      usedModel: action,
+      requestedVoice: req.voice,
+      usedVoice: String(voice),
+      instructionMode: req.stylePrompt ? "suppressed" : "not-supported",
+      languageType: req.languageType,
+      warnings: req.stylePrompt ? ["腾讯云 TextToVoice 不发送自然语言导演指令；使用 VoiceType、Speed、Volume 等参数控制。"] : [],
+      requestSummary: [
+        { label: "接口", value: action },
+        { label: "Region", value: region },
+        { label: "Speed", value: String(speed) },
+        { label: "Volume", value: String(volume) }
+      ]
+    }
+  }
 }

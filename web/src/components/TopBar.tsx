@@ -66,7 +66,7 @@ export function TopBar(props: Props) {
           </div>
 
           <div className="actionCluster actionClusterExport">
-            <select className="formatSelect" value={props.exportFormat} onChange={(e) => props.onExportFormatChange(e.target.value === "wav" ? "wav" : "mp3")}>
+            <select className="formatSelect" aria-label="导出格式" value={props.exportFormat} onChange={(e) => props.onExportFormatChange(e.target.value === "wav" ? "wav" : "mp3")}>
               <option value="mp3">MP3</option>
               <option value="wav">WAV</option>
             </select>

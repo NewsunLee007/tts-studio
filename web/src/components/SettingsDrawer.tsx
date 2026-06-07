@@ -69,7 +69,7 @@ const providerSetupGuide: Partial<Record<ProviderId, { title: string; steps: str
   },
   dashscope: {
     title: "阿里云 DashScope / 百炼接入",
-    steps: ["登录阿里云百炼控制台。", "创建或复制 API Key。", "确认账号地域与 Base URL 一致：国内默认 dashscope.aliyuncs.com，国际账号使用 dashscope-intl.aliyuncs.com。", "优先尝试 CosyVoice 模型，Qwen-TTS 作为兼容回退。"],
+    steps: ["登录阿里云百炼控制台。", "创建或复制 API Key。", "确认账号地域与 Base URL 一致：国内默认 dashscope.aliyuncs.com，国际账号使用 dashscope-intl.aliyuncs.com。", "快速预览优先 Qwen3-TTS Flash；需要导演提示时选 Qwen3-TTS Instruct；正式质量路线可试 CosyVoice。"],
     links: [
       { label: "获取 DashScope API Key", url: "https://help.aliyun.com/zh/model-studio/get-api-key" },
       { label: "CosyVoice API", url: "https://help.aliyun.com/zh/model-studio/non-realtime-cosyvoice-api" },
@@ -142,6 +142,20 @@ export function SettingsDrawer(props: Props) {
     const filtered = props.voiceGender === "all" ? list : list.filter((voice) => voice.gender === props.voiceGender)
     return Array.from(new Map(filtered.map((voice) => [voice.id, voice])).values())
   }, [provider, props.voiceGender])
+  const selectedModel = useMemo(() => provider?.models.find((model) => model.id === props.modelId), [provider, props.modelId])
+  const providerModelAdvice = (() => {
+    if (!provider) return ""
+    if (provider.id === "dashscope") {
+      if (props.modelId.includes("instruct")) return "推荐用于正式导出和风格控制：会发送导演提示，适合稳定考试口吻、角色和发音标准。"
+      if (props.modelId.includes("cosyvoice")) return "推荐用于正式质量路线：不发送长导演提示，主要依靠音色、语速、语言提示和音量参数。"
+      if (props.modelId.includes("qwen3-tts-flash")) return "推荐用于快速草稿和批量预览：不发送导演提示，速度快、稳定性高。"
+      return "旧版兼容入口：建议只在账号未开通 Qwen3/CosyVoice 时使用。"
+    }
+    if (provider.id === "volcengine" || provider.id === "xfyun" || provider.id === "tencent") {
+      return "国内传统 TTS 主要靠音色、语言、语速、音高、音量控制；导演提示不会作为自然语言指令发送。"
+    }
+    return ""
+  })()
   const geminiMaleVoices = useMemo(() => (provider?.voices || []).filter((voice) => voice.gender === "male"), [provider])
   const geminiFemaleVoices = useMemo(() => (provider?.voices || []).filter((voice) => voice.gender === "female"), [provider])
 
@@ -274,12 +288,18 @@ export function SettingsDrawer(props: Props) {
 
               <label className="field">
                 <div className="label">模型</div>
-                <select value={props.modelId} onChange={(event) => props.onModelIdChange(event.target.value)}>
+                <select aria-label="模型" value={props.modelId} onChange={(event) => props.onModelIdChange(event.target.value)}>
                   {provider.models.map((model) => (
                     <option key={model.id} value={model.id}>{model.label}</option>
                   ))}
                 </select>
               </label>
+              {selectedModel ? (
+                <div className="modelAdvice">
+                  <strong>{selectedModel.supportsInstructions ? "支持导演指令" : "不发送导演指令"}</strong>
+                  <span>{providerModelAdvice || selectedModel.description}</span>
+                </div>
+              ) : null}
 
               <div className="field">
                 <div className="label">音色筛选</div>
@@ -294,7 +314,7 @@ export function SettingsDrawer(props: Props) {
 
               <label className="field">
                 <div className="label">默认音色</div>
-                <select value={props.voiceId} onChange={(event) => props.onVoiceIdChange(event.target.value)}>
+                <select aria-label="默认音色" value={props.voiceId} onChange={(event) => props.onVoiceIdChange(event.target.value)}>
                   {voiceOptions.map((voice) => (
                     <option key={voice.id} value={voice.id}>{voice.label}</option>
                   ))}
@@ -304,7 +324,7 @@ export function SettingsDrawer(props: Props) {
                 <div className="settingsTwoCol">
                   <label className="field">
                     <div className="label">对话男声（M/A）</div>
-                    <select value={props.geminiMaleVoiceId} onChange={(event) => props.onGeminiMaleVoiceIdChange(event.target.value)}>
+                    <select aria-label="对话男声" value={props.geminiMaleVoiceId} onChange={(event) => props.onGeminiMaleVoiceIdChange(event.target.value)}>
                       {geminiMaleVoices.map((voice) => (
                         <option key={voice.id} value={voice.id}>{voice.label}</option>
                       ))}
@@ -312,7 +332,7 @@ export function SettingsDrawer(props: Props) {
                   </label>
                   <label className="field">
                     <div className="label">对话女声（W/B）</div>
-                    <select value={props.geminiFemaleVoiceId} onChange={(event) => props.onGeminiFemaleVoiceIdChange(event.target.value)}>
+                    <select aria-label="对话女声" value={props.geminiFemaleVoiceId} onChange={(event) => props.onGeminiFemaleVoiceIdChange(event.target.value)}>
                       {geminiFemaleVoices.map((voice) => (
                         <option key={voice.id} value={voice.id}>{voice.label}</option>
                       ))}
@@ -365,14 +385,14 @@ export function SettingsDrawer(props: Props) {
               </label>
               <label className="field">
                 <div className="label">题号播报格式</div>
-                <select value={props.template.questionNumberStyle} onChange={(event) => props.onTemplateChange({ questionNumberStyle: event.target.value === "test" ? "test" : "number" })}>
+                <select aria-label="题号播报格式" value={props.template.questionNumberStyle} onChange={(event) => props.onTemplateChange({ questionNumberStyle: event.target.value === "test" ? "test" : "number" })}>
                   <option value="number">Number 1 / Number 2</option>
                   <option value="test">Test 1 / Test 2</option>
                 </select>
               </label>
               <label className="field">
                 <div className="label">导入音乐</div>
-                <select value={props.template.introMusicPreset} onChange={(event) => props.onTemplateChange({ introMusicPreset: event.target.value as ExamTemplate["introMusicPreset"] })}>
+                <select aria-label="导入音乐" value={props.template.introMusicPreset} onChange={(event) => props.onTemplateChange({ introMusicPreset: event.target.value as ExamTemplate["introMusicPreset"] })}>
                   <option value="warmup">Warmup 电子提示音</option>
                   <option value="bell">Bell 考试铃声</option>
                   <option value="soft">Soft 柔和提示音</option>
@@ -425,6 +445,7 @@ export function SettingsDrawer(props: Props) {
               <label className="field">
                 <div className="label">英语发音标准</div>
                 <select
+                  aria-label="英语发音标准"
                   value={props.englishAccent}
                   onChange={(event) => {
                     props.onEnglishAccentChange(event.target.value as EnglishAccentId)
@@ -509,7 +530,7 @@ export function SettingsDrawer(props: Props) {
                   </div>
                   <label className="field">
                     <div className="label">DashScope Language</div>
-                    <select value={props.languageType} onChange={(event) => props.onLanguageTypeChange(event.target.value)}>
+                    <select aria-label="DashScope Language" value={props.languageType} onChange={(event) => props.onLanguageTypeChange(event.target.value)}>
                       {["Auto", "Chinese", "English", "German", "Italian", "Portuguese", "Spanish", "Japanese", "Korean", "French", "Russian"].map((item) => (
                         <option key={item} value={item}>{item}</option>
                       ))}

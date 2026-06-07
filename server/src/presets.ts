@@ -103,19 +103,26 @@ export const providerConfigs: ProviderConfig[] = [
     defaultBaseUrl: "https://dashscope.aliyuncs.com/api/v1",
     credentialFields: [{ key: "apiKey", label: "API Key", type: "password", required: true, placeholder: "sk-..." }],
     models: [
-      { id: "qwen-tts", label: "qwen-tts（稳定）", description: "稳定版本，兼容性更好", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
-      { id: "qwen-tts-latest", label: "qwen-tts-latest（最新）", description: "最新版本，效果可能更自然", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
-      { id: "qwen3-tts-flash", label: "qwen3-tts-flash", description: "低延迟，多语言，适合批量草稿和正式生成", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
-      { id: "qwen3-tts-instruct-flash", label: "qwen3-tts-instruct-flash", description: "指令控制更强（需账号开通）", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] }
+      { id: "qwen3-tts-flash", label: "Qwen3-TTS Flash（快速草稿）", description: "低延迟、多语言，适合批量预览；不发送导演指令，主要靠音色和语速控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "qwen3-tts-instruct-flash", label: "Qwen3-TTS Instruct Flash（指令控制）", description: "支持自然语言风格指令，适合正式考试口吻、角色约束和一致性控制", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "cosyvoice-v3.5-flash", label: "CosyVoice v3.5 Flash（高质量）", description: "CosyVoice 非实时合成，适合正式导出；使用音色、语速、音高、音量控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "cosyvoice-v3.5-plus", label: "CosyVoice v3.5 Plus（高质量）", description: "更偏正式质量路线，需账号和音色权限支持", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "qwen-tts", label: "qwen-tts（旧版兼容）", description: "旧版兼容入口；建议只在账号暂未开通 Qwen3/CosyVoice 时使用", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "qwen-tts-latest", label: "qwen-tts-latest（旧版最新）", description: "旧版 latest 入口；能力随服务端变化，正式批量前建议先生成样例", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] }
     ],
     voices: [
       { id: "Cherry", label: "Cherry 清晰女声", gender: "female", locale: "en-US", role: "narrator" },
       { id: "Serena", label: "Serena 自然女声", gender: "female", locale: "en-US", role: "dialogue" },
       { id: "Chelsie", label: "Chelsie 活泼女声", gender: "female", locale: "en-US", role: "dialogue" },
-      { id: "Ethan", label: "Ethan 清晰男声", gender: "male", locale: "en-US", role: "dialogue" }
+      { id: "Ethan", label: "Ethan 清晰男声", gender: "male", locale: "en-US", role: "dialogue" },
+      { id: "loongbella_v3", label: "CosyVoice Bella v3 女声", gender: "female", locale: "zh-CN", role: "narrator" },
+      { id: "loongbella_v2", label: "CosyVoice Bella v2 女声", gender: "female", locale: "zh-CN", role: "narrator" },
+      { id: "longxiaochun_v2", label: "CosyVoice 小淳 v2 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
+      { id: "longwan_v2", label: "CosyVoice 湾湾 v2 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
+      { id: "longcheng_v2", label: "CosyVoice 龙橙 v2 男声", gender: "male", locale: "zh-CN", role: "dialogue" }
     ],
     capabilities: ["指令控制", "多模型", "中英双语", "适合考试旁白"],
-    defaultModelId: "qwen-tts",
+    defaultModelId: "qwen3-tts-flash",
     defaultVoiceId: "Cherry"
   },
   {
