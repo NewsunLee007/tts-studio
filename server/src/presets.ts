@@ -162,7 +162,7 @@ export const providerConfigs: ProviderConfig[] = [
     models: [
       { id: "gemini-3.1-flash-tts-preview", label: "Gemini 3.1 Flash TTS Preview", description: "最新 Gemini Flash TTS Preview，适合快速可控语音生成", supportsInstructions: true, speedRange: [0.25, 2] },
       { id: "gemini-2.5-flash-preview-tts", label: "Gemini 2.5 Flash Preview TTS", description: "Gemini 2.5 低延迟 TTS Preview，支持单人和双人语音", supportsInstructions: true, speedRange: [0.25, 2] },
-      { id: "gemini-2.5-pro-preview-tts", label: "Gemini 2.5 Pro Preview TTS", description: "Gemini 2.5 高质量 TTS Preview，适合更复杂的风格控制", supportsInstructions: true, speedRange: [0.25, 2] }
+      { id: "gemini-2.5-pro-preview-tts", label: "Gemini 2.5 Pro Preview TTS", description: "Gemini 2.5 高质量 TTS Preview；如遇 Google 内部错误会自动回退到 Flash TTS", supportsInstructions: true, speedRange: [0.25, 2] }
     ],
     voices: [
       { id: "Puck", label: "Puck · Upbeat", gender: "male", locale: "en", role: "dialogue" },
