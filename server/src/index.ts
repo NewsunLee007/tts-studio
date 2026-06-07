@@ -200,9 +200,57 @@ async function fetchGoogleCatalog(config: ProviderConfig, body: CatalogBody) {
   }
 }
 
-async function fetchWithProxy(url: string, proxyUrl: string) {
+async function fetchGoogleGeminiCatalog(config: ProviderConfig, body: CatalogBody) {
+  const apiKey = body.credentials?.apiKey
+  if (!apiKey) throw new Error("Gemini API Key required")
+  const base = (body.baseUrl || config.defaultBaseUrl || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "")
+  const url = `${base}/models`
+  const proxyUrl = body.credentials?.proxyUrl || process.env.HTTPS_PROXY || process.env.HTTP_PROXY
+  const res = proxyUrl
+    ? await fetchWithProxy(url, String(proxyUrl), { "x-goog-api-key": apiKey })
+    : await fetch(url, { headers: { "x-goog-api-key": apiKey } })
+  const responseText = await res.text().catch(() => "")
+  const json = (() => {
+    try {
+      return JSON.parse(responseText) as { models?: Array<{ name?: string; displayName?: string; description?: string; supportedGenerationMethods?: string[] }>; error?: { message?: string } } | null
+    } catch {
+      return null
+    }
+  })()
+  if (!res.ok) throw new Error(json?.error?.message || responseText || `Gemini models error (${res.status})`)
+
+  const remoteModels: TtsModelPreset[] = (json?.models || [])
+    .filter((item) => {
+      const rawId = item.name?.replace(/^models\//, "") || ""
+      const display = item.displayName || ""
+      const methods = item.supportedGenerationMethods || []
+      return /tts/i.test(`${rawId} ${display}`) && methods.includes("generateContent")
+    })
+    .map((item) => {
+      const id = item.name?.replace(/^models\//, "") || item.displayName || ""
+      return {
+        id,
+        label: item.displayName || id,
+        description: item.description || "Gemini API models.list 返回的 TTS 候选模型",
+        supportsInstructions: true,
+        speedRange: [0.25, 2] as [number, number]
+      }
+    })
+    .filter((item) => Boolean(item.id))
+
+  return {
+    models: uniqueById([...remoteModels, ...config.models]),
+    voices: config.voices,
+    source: "remote",
+    message: remoteModels.length
+      ? `已从 Gemini 拉取 ${remoteModels.length} 个 TTS 候选模型；音色使用 Gemini 固定 voice 列表。`
+      : "Gemini 远端模型列表未返回 TTS 候选项，已保留内置 3.1/2.5 TTS 模型。"
+  }
+}
+
+async function fetchWithProxy(url: string, proxyUrl: string, headers?: Record<string, string>) {
   const { ProxyAgent, fetch: undiciFetch } = await import("undici")
-  return undiciFetch(url, { dispatcher: new ProxyAgent(proxyUrl) })
+  return undiciFetch(url, { dispatcher: new ProxyAgent(proxyUrl), headers })
 }
 
 async function fetchProviderCatalog(provider: ProviderId, body: CatalogBody) {
@@ -210,7 +258,7 @@ async function fetchProviderCatalog(provider: ProviderId, body: CatalogBody) {
   if (!config) throw new Error(`Unknown provider: ${provider}`)
   if (provider === "openai") return fetchOpenAiCatalog(config, body)
   if (provider === "google") return fetchGoogleCatalog(config, body)
-  if (provider === "google_gemini") return { models: config.models, voices: config.voices, source: "builtin", message: "Gemini TTS 使用内置模型与音色列表。" }
+  if (provider === "google_gemini") return fetchGoogleGeminiCatalog(config, body)
   return {
     models: config.models,
     voices: config.voices,
