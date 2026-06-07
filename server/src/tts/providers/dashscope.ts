@@ -81,14 +81,28 @@ function dashscopeTextPayload(text: string) {
   return { text: ssml, ssml: true }
 }
 
+const cosyVoiceV3FlashVoices = ["longanyang", "longanhuan_v3", "longanhuan", "loongbella_v3", "longshuo_v3", "longshu_v3"]
+const cosyVoiceV3PlusVoices = ["longanyang", "longanhuan"]
+const cosyVoiceV2Voices = ["loongbella_v2", "longxiaochun_v2", "longwan_v2", "longcheng_v2"]
+
+function compatibleCosyVoiceModel(model: string) {
+  if (model === "cosyvoice-v3.5-plus") return "cosyvoice-v3-plus"
+  if (model === "cosyvoice-v3.5-flash") return "cosyvoice-v3-flash"
+  return model
+}
+
 function compatibleCosyVoice(model: string, voice?: string) {
   const requested = voice || ""
+  if (model === "cosyvoice-v3-plus") {
+    if (!requested || !cosyVoiceV3PlusVoices.includes(requested)) return "longanhuan"
+    return requested
+  }
   if (model.startsWith("cosyvoice-v3")) {
-    if (!requested || requested.endsWith("_v2") || ["Cherry", "Ethan"].includes(requested)) return "loongbella_v3"
+    if (!requested || !cosyVoiceV3FlashVoices.includes(requested)) return "loongbella_v3"
     return requested
   }
   if (model.startsWith("cosyvoice-v2")) {
-    if (!requested || requested.endsWith("_v3") || requested === "longanyang" || ["Cherry", "Ethan"].includes(requested)) return "loongbella_v2"
+    if (!requested || !cosyVoiceV2Voices.includes(requested)) return "loongbella_v2"
     return requested
   }
   return requested || "loongbella_v2"
@@ -226,7 +240,8 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
 
 async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string, model: string): Promise<TtsAudio> {
   const url = `${base}/services/audio/tts/SpeechSynthesizer`
-  const preferredVoice = compatibleCosyVoice(model, req.voice)
+  const usedModel = compatibleCosyVoiceModel(model)
+  const preferredVoice = compatibleCosyVoice(usedModel, req.voice)
   const requestedVoice = req.voice || ""
   const textPayload = dashscopeTextPayload(req.text)
   const input: Record<string, unknown> = {
@@ -249,12 +264,13 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
   // Avoid sending arbitrary project prompts here; use text, voice, rate, pitch and volume for stability.
   const warnings = [
     req.stylePrompt ? "CosyVoice 路径不发送全局导演指令；使用音色、语言提示、语速、音高和音量保证稳定性。" : "",
+    usedModel !== model ? `CosyVoice v3.5 不支持系统音色，已自动改用：${model} -> ${usedModel}` : "",
     requestedVoice && requestedVoice !== preferredVoice ? `CosyVoice 音色已适配：${requestedVoice} -> ${preferredVoice}` : ""
   ].filter(Boolean)
   const meta = {
     provider: "dashscope",
     requestedModel: model,
-    usedModel: model,
+    usedModel,
     requestedVoice: requestedVoice || preferredVoice,
     usedVoice: preferredVoice,
     instructionMode: req.stylePrompt ? "suppressed" as const : "not-supported" as const,
@@ -274,7 +290,7 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ model, input })
+    body: JSON.stringify({ model: usedModel, input })
   })
 
   if (!res.ok) {

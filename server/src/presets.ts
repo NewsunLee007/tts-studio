@@ -105,8 +105,8 @@ export const providerConfigs: ProviderConfig[] = [
     models: [
       { id: "qwen3-tts-flash", label: "Qwen3-TTS Flash（快速草稿）", description: "低延迟、多语言，适合批量预览；不发送导演指令，主要靠音色和语速控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "qwen3-tts-instruct-flash", label: "Qwen3-TTS Instruct Flash（指令控制）", description: "支持自然语言风格指令，适合正式考试口吻、角色约束和一致性控制", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
-      { id: "cosyvoice-v3.5-flash", label: "CosyVoice v3.5 Flash（高质量）", description: "CosyVoice 非实时合成，适合正式导出；使用音色、语速、音高、音量控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
-      { id: "cosyvoice-v3.5-plus", label: "CosyVoice v3.5 Plus（高质量）", description: "更偏正式质量路线，需账号和音色权限支持", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "cosyvoice-v3-flash", label: "CosyVoice v3 Flash（高质量）", description: "CosyVoice 系统音色路线，适合正式导出；使用音色、语速、音高、音量控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "cosyvoice-v3-plus", label: "CosyVoice v3 Plus（高质量）", description: "更偏正式质量路线，需账号和音色权限支持；使用 v3-plus 支持的系统音色", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "qwen-tts", label: "qwen-tts（旧版兼容）", description: "旧版兼容入口；建议只在账号暂未开通 Qwen3/CosyVoice 时使用", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "qwen-tts-latest", label: "qwen-tts-latest（旧版最新）", description: "旧版 latest 入口；能力随服务端变化，正式批量前建议先生成样例", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] }
     ],
@@ -115,11 +115,12 @@ export const providerConfigs: ProviderConfig[] = [
       { id: "Serena", label: "Serena 自然女声", gender: "female", locale: "en-US", role: "dialogue" },
       { id: "Chelsie", label: "Chelsie 活泼女声", gender: "female", locale: "en-US", role: "dialogue" },
       { id: "Ethan", label: "Ethan 清晰男声", gender: "male", locale: "en-US", role: "dialogue" },
+      { id: "longanyang", label: "CosyVoice 龙安洋 男声", gender: "male", locale: "zh-CN", role: "dialogue" },
+      { id: "longanhuan_v3", label: "CosyVoice 龙安欢 v3 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
+      { id: "longanhuan", label: "CosyVoice 龙安欢 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
       { id: "loongbella_v3", label: "CosyVoice Bella v3 女声", gender: "female", locale: "zh-CN", role: "narrator" },
-      { id: "loongbella_v2", label: "CosyVoice Bella v2 女声", gender: "female", locale: "zh-CN", role: "narrator" },
-      { id: "longxiaochun_v2", label: "CosyVoice 小淳 v2 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
-      { id: "longwan_v2", label: "CosyVoice 湾湾 v2 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
-      { id: "longcheng_v2", label: "CosyVoice 龙橙 v2 男声", gender: "male", locale: "zh-CN", role: "dialogue" }
+      { id: "longshuo_v3", label: "CosyVoice 龙硕 v3 男声", gender: "male", locale: "zh-CN", role: "narrator" },
+      { id: "longshu_v3", label: "CosyVoice 龙书 v3 男声", gender: "male", locale: "zh-CN", role: "dialogue" }
     ],
     capabilities: ["指令控制", "多模型", "中英双语", "适合考试旁白"],
     defaultModelId: "qwen3-tts-flash",

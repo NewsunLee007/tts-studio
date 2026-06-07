@@ -69,7 +69,7 @@ const providerSetupGuide: Partial<Record<ProviderId, { title: string; steps: str
   },
   dashscope: {
     title: "阿里云 DashScope / 百炼接入",
-    steps: ["登录阿里云百炼控制台。", "创建或复制 API Key。", "确认账号地域与 Base URL 一致：国内默认 dashscope.aliyuncs.com，国际账号使用 dashscope-intl.aliyuncs.com。", "快速预览优先 Qwen3-TTS Flash；需要导演提示时选 Qwen3-TTS Instruct；正式质量路线可试 CosyVoice。"],
+    steps: ["登录阿里云百炼控制台。", "创建或复制 API Key。", "确认账号地域与 Base URL 一致：国内默认 dashscope.aliyuncs.com，国际账号使用 dashscope-intl.aliyuncs.com。", "快速预览优先 Qwen3-TTS Flash；需要导演提示时选 Qwen3-TTS Instruct；系统音色正式导出使用 CosyVoice v3。"],
     links: [
       { label: "获取 DashScope API Key", url: "https://help.aliyun.com/zh/model-studio/get-api-key" },
       { label: "CosyVoice API", url: "https://help.aliyun.com/zh/model-studio/non-realtime-cosyvoice-api" },
@@ -147,7 +147,7 @@ export function SettingsDrawer(props: Props) {
     if (!provider) return ""
     if (provider.id === "dashscope") {
       if (props.modelId.includes("instruct")) return "推荐用于正式导出和风格控制：会发送导演提示，适合稳定考试口吻、角色和发音标准。"
-      if (props.modelId.includes("cosyvoice")) return "推荐用于正式质量路线：不发送长导演提示，主要依靠音色、语速、语言提示和音量参数。"
+      if (props.modelId.includes("cosyvoice")) return "推荐用于正式质量路线：使用 CosyVoice v3 系统音色；v3.5 属于声音设计/复刻路线，不直接搭配这些内置系统音色。"
       if (props.modelId.includes("qwen3-tts-flash")) return "推荐用于快速草稿和批量预览：不发送导演提示，速度快、稳定性高。"
       return "旧版兼容入口：建议只在账号未开通 Qwen3/CosyVoice 时使用。"
     }
