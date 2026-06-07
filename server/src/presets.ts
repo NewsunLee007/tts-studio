@@ -160,9 +160,9 @@ export const providerConfigs: ProviderConfig[] = [
       { key: "proxyUrl", label: "Proxy URL（可选）", type: "url", required: false, placeholder: "留空或填写本机代理地址" }
     ],
     models: [
-      { id: "gemini-3.1-flash-tts-preview", label: "Gemini 3.1 Flash TTS Preview", description: "最新 Gemini Flash TTS Preview，适合快速可控语音生成", supportsInstructions: true, speedRange: [0.25, 2] },
-      { id: "gemini-2.5-flash-preview-tts", label: "Gemini 2.5 Flash Preview TTS", description: "Gemini 2.5 低延迟 TTS Preview，支持单人和双人语音", supportsInstructions: true, speedRange: [0.25, 2] },
-      { id: "gemini-2.5-pro-preview-tts", label: "Gemini 2.5 Pro Preview TTS", description: "Gemini 2.5 高质量 TTS Preview；如遇 Google 内部错误会自动回退到 Flash TTS", supportsInstructions: true, speedRange: [0.25, 2] }
+      { id: "gemini-2.5-flash-preview-tts", label: "Gemini 2.5 Flash Preview TTS（考试推荐）", description: "Gemini 2.5 低延迟 TTS Preview，情绪更克制，推荐用于考试听力", supportsInstructions: true, speedRange: [0.25, 2] },
+      { id: "gemini-2.5-pro-preview-tts", label: "Gemini 2.5 Pro Preview TTS", description: "Gemini 2.5 高质量 TTS Preview；如遇 Google 内部错误会自动回退到 2.5 Flash TTS", supportsInstructions: true, speedRange: [0.25, 2] },
+      { id: "gemini-3.1-flash-tts-preview", label: "Gemini 3.1 Flash TTS Preview（表现力强）", description: "最新 Gemini Flash TTS Preview，表现力更强；考试场景建议先用 2.5 Flash", supportsInstructions: true, speedRange: [0.25, 2] }
     ],
     voices: [
       { id: "Puck", label: "Puck · Upbeat", gender: "male", locale: "en", role: "dialogue" },
@@ -197,7 +197,7 @@ export const providerConfigs: ProviderConfig[] = [
       { id: "Sadachbia", label: "Sadachbia · Lively", gender: "male", locale: "en", role: "dialogue" }
     ],
     capabilities: ["Gemini TTS", "可控式 prompt", "双人对话", "AUDIO 输出"],
-    defaultModelId: "gemini-3.1-flash-tts-preview",
+    defaultModelId: "gemini-2.5-flash-preview-tts",
     defaultVoiceId: "Iapetus"
   },
   {

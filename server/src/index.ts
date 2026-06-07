@@ -238,8 +238,16 @@ async function fetchGoogleGeminiCatalog(config: ProviderConfig, body: CatalogBod
     })
     .filter((item) => Boolean(item.id))
 
+  const preferredOrder = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts", "gemini-3.1-flash-tts-preview"]
+  const models = uniqueById([...config.models, ...remoteModels]).sort((a, b) => {
+    const ai = preferredOrder.indexOf(a.id)
+    const bi = preferredOrder.indexOf(b.id)
+    if (ai >= 0 || bi >= 0) return (ai >= 0 ? ai : Number.MAX_SAFE_INTEGER) - (bi >= 0 ? bi : Number.MAX_SAFE_INTEGER)
+    return a.id.localeCompare(b.id)
+  })
+
   return {
-    models: uniqueById([...remoteModels, ...config.models]),
+    models,
     voices: config.voices,
     source: "remote",
     message: remoteModels.length

@@ -166,17 +166,17 @@ function isDeveloperInstructionDisabled(message: string) {
   return /Developer instruction is not enabled for this model/i.test(message)
 }
 
-const GEMINI_DEFAULT_TTS_MODEL = "gemini-3.1-flash-tts-preview"
 const GEMINI_FLASH_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 const GEMINI_PRO_TTS_MODEL = "gemini-2.5-pro-preview-tts"
+const GEMINI_DEFAULT_TTS_MODEL = GEMINI_FLASH_TTS_MODEL
 
 function geminiTtsModelAttempts(model: string) {
-  const fallbacks = model === GEMINI_PRO_TTS_MODEL
-    ? [GEMINI_FLASH_TTS_MODEL, GEMINI_DEFAULT_TTS_MODEL]
-    : model === GEMINI_FLASH_TTS_MODEL
-      ? [GEMINI_DEFAULT_TTS_MODEL]
-      : [GEMINI_FLASH_TTS_MODEL]
+  const fallbacks = model === GEMINI_PRO_TTS_MODEL ? [GEMINI_FLASH_TTS_MODEL] : []
   return Array.from(new Set([model, ...fallbacks]))
+}
+
+function isGemini25TtsModel(model: string) {
+  return /^gemini-2\.5-.*-tts$/i.test(model)
 }
 
 function geminiErrorMessage(json: any, responseText: string, statusText: string) {
@@ -185,6 +185,42 @@ function geminiErrorMessage(json: any, responseText: string, statusText: string)
 
 function isRetryableGeminiModelError(status: number, message: string) {
   return status >= 500 || /internal error|temporarily unavailable|service unavailable/i.test(message)
+}
+
+function examDeliveryInstruction(text: string) {
+  const languageLine = hasChineseText(text)
+    ? "Speak Chinese text in natural standard Mandarin exactly as written; do not translate it."
+    : "Speak the text in the same language as written; do not translate it."
+  return [
+    "Read aloud only the transcript below.",
+    languageLine,
+    "Use a restrained exam-listening delivery: calm, neutral, clear articulation, steady pace, no dramatic acting, no extra emotion.",
+    "Do not read these instructions aloud."
+  ].join(" ")
+}
+
+function singleSpeakerContents(model: string, text: string) {
+  const spoken = mitigateModerationText(text)
+  if (isGemini25TtsModel(model)) {
+    return [{ parts: [{ text: `${examDeliveryInstruction(text)}\n\nTranscript:\n${spoken}` }] }]
+  }
+  return [{ parts: [{ text: spoken }] }]
+}
+
+function singleSpeakerSystemInstruction(model: string, systemText: string) {
+  return isGemini25TtsModel(model) ? undefined : buildSystemInstruction(systemText)
+}
+
+function multiSpeakerContents(model: string, prompt: string, systemText: string) {
+  const spoken = mitigateModerationText(prompt)
+  if (isGemini25TtsModel(model)) {
+    return [{ parts: [{ text: `${systemText}\n\nRead aloud only the dialogue transcript below. Do not read speaker labels.\n\nTranscript:\n${spoken}` }] }]
+  }
+  return [{ parts: [{ text: spoken }] }]
+}
+
+function multiSpeakerSystemInstruction(model: string, systemText: string) {
+  return isGemini25TtsModel(model) ? undefined : buildSystemInstruction(mitigateModerationText(systemText))
 }
 
 export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
@@ -215,8 +251,8 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
   for (const model of modelAttempts) {
     const url = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`
     const body: Record<string, any> = {
-      systemInstruction: buildSystemInstruction(systemText),
-      contents: [{ parts: [{ text: mitigateModerationText(text) }] }],
+      systemInstruction: singleSpeakerSystemInstruction(model, systemText),
+      contents: singleSpeakerContents(model, text),
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
@@ -229,6 +265,7 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
       },
       model
     }
+    if (!body.systemInstruction) delete body.systemInstruction
 
     let { res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body, timeoutMs: estimateTimeoutMs(text) })
     if (!res.ok && isDeveloperInstructionDisabled(responseText || json?.error?.message || "")) {
@@ -240,7 +277,7 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
       ;({ res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body: retryBody, timeoutMs: estimateTimeoutMs(text) }))
     }
     if (res.ok && json && isProhibitedContent(json)) {
-      const retryBody = { ...body, contents: [{ parts: [{ text: mitigateModerationText(text) }] }] }
+      const retryBody = { ...body, contents: singleSpeakerContents(model, text) }
       ;({ res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body: retryBody, timeoutMs: estimateTimeoutMs(text) }))
     }
 
@@ -269,7 +306,7 @@ export async function googleGeminiTts(req: UnifiedTtsRequest): Promise<TtsAudio>
         requestedVoice: req.voice,
         usedVoice: voiceName,
         instructionMode: req.stylePrompt ? "sent" : "not-supported",
-        warnings: model !== requestedModel ? [`${requestedModel} 返回服务端错误，已自动回退到 ${model}。`] : [],
+        warnings: model !== requestedModel ? [`${requestedModel} 返回服务端错误，已自动回退到 ${model}；未使用 3.1 表现力模型。`] : [],
         requestSummary: [
           { label: "接口", value: "Gemini voiceConfig" },
           { label: "音色", value: voiceName },
@@ -326,8 +363,8 @@ export async function googleGeminiDialogueTts(args: {
   for (const model of modelAttempts) {
     const url = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`
     const body: Record<string, any> = {
-      systemInstruction: buildSystemInstruction(mitigateModerationText(systemText)),
-      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: multiSpeakerSystemInstruction(model, systemText),
+      contents: multiSpeakerContents(model, prompt, systemText),
       generationConfig: {
         responseModalities: ["AUDIO"],
         speechConfig: {
@@ -338,6 +375,7 @@ export async function googleGeminiDialogueTts(args: {
       },
       model
     }
+    if (!body.systemInstruction) delete body.systemInstruction
 
     let { res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body, timeoutMs: estimateTimeoutMs(transcript) })
     if (!res.ok && isDeveloperInstructionDisabled(responseText || json?.error?.message || "")) {
@@ -346,7 +384,7 @@ export async function googleGeminiDialogueTts(args: {
       ;({ res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body: retryBody, timeoutMs: estimateTimeoutMs(transcript) }))
     }
     if (res.ok && json && isProhibitedContent(json)) {
-      const retryBody = { ...body, contents: [{ parts: [{ text: mitigateModerationText(prompt) }] }] }
+      const retryBody = { ...body, contents: multiSpeakerContents(model, prompt, systemText) }
       ;({ res, responseText, json } = await callGeminiTts({ url, apiKey, dispatcher, body: retryBody, timeoutMs: estimateTimeoutMs(transcript) }))
     }
 
@@ -374,7 +412,7 @@ export async function googleGeminiDialogueTts(args: {
         requestedVoice: speakerVoiceConfigs.map((item) => item.voiceConfig.prebuiltVoiceConfig.voiceName).join(" / "),
         usedVoice: speakerVoiceConfigs.map((item) => `${item.speaker}:${item.voiceConfig.prebuiltVoiceConfig.voiceName}`).join(" / "),
         instructionMode: "sent",
-        warnings: model !== requestedModel ? [`${requestedModel} 返回服务端错误，已自动回退到 ${model}。`] : [],
+        warnings: model !== requestedModel ? [`${requestedModel} 返回服务端错误，已自动回退到 ${model}；未使用 3.1 表现力模型。`] : [],
         requestSummary: [
           { label: "接口", value: "Gemini multiSpeakerVoiceConfig" },
           { label: "说话人", value: speakerVoiceConfigs.map((item) => item.speaker).join(" / ") },
