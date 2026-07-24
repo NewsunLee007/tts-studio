@@ -176,10 +176,13 @@ export function SegmentList(props: Props) {
   return (
     <aside className="leftPane">
       <div className="leftHead">
-        <div className="leftTitle">语音片段选择</div>
+        <div>
+          <h2 className="leftTitle">第 2 步｜检查朗读顺序</h2>
+          <div className="cardSub">点选片段可修改文字、角色和停顿。</div>
+        </div>
         <div className="leftActions">
           <button className="btnGhost" type="button" onClick={props.onAddTts}>
-            + TTS
+            + 朗读
           </button>
           <button className="btnGhost" type="button" onClick={props.onAddSilence}>
             + 无声

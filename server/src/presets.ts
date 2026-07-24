@@ -1,4 +1,4 @@
-export type ProviderId = "openai" | "dashscope" | "google" | "google_gemini" | "volcengine" | "xfyun" | "tencent" | "baidu" | "huawei"
+export type ProviderId = "openai" | "dashscope" | "minimax" | "google" | "google_gemini" | "volcengine" | "xfyun" | "tencent" | "baidu" | "huawei"
 
 export type StylePresetId = "news_anchor" | "teacher" | "dialogue" | "slow_clear" | "exam_host" | "question_marker" | "phonics"
 
@@ -125,6 +125,31 @@ export const providerConfigs: ProviderConfig[] = [
     capabilities: ["指令控制", "多模型", "中英双语", "适合考试旁白"],
     defaultModelId: "qwen3-tts-flash",
     defaultVoiceId: "Cherry"
+  },
+  {
+    id: "minimax",
+    label: "MiniMax Speech 2.8",
+    region: "china",
+    status: "ready",
+    description: "MiniMax 新一代同步语音合成，适合自然英文对话与高质量正式导出。",
+    defaultBaseUrl: "https://api.minimaxi.com/v1/t2a_v2",
+    credentialFields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+    models: [
+      { id: "speech-2.8-turbo", label: "Speech 2.8 Turbo（快速预览）", description: "生成速度快，适合先试听整套材料", supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "speech-2.8-hd", label: "Speech 2.8 HD（正式导出）", description: "韵律和自然度优先，适合最终成品", supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "speech-2.6-hd", label: "Speech 2.6 HD（稳定兼容）", description: "成熟稳定的高质量兼容模型", supportsEmotion: true, speedRange: [0.5, 2] }
+    ],
+    voices: [
+      { id: "English_Graceful_Lady", label: "Graceful Lady 清晰女声", gender: "female", locale: "en", role: "narrator" },
+      { id: "English_Insightful_Speaker", label: "Insightful Speaker 英文女声", gender: "female", locale: "en", role: "question" },
+      { id: "English_Trustworthy_Man", label: "Trustworthy Man 稳重男声", gender: "male", locale: "en", role: "dialogue" },
+      { id: "English_Diligent_Man", label: "Diligent Man 清晰男声", gender: "male", locale: "en", role: "dialogue" },
+      { id: "female-chengshu", label: "成熟女性 中文旁白", gender: "female", locale: "zh-CN", role: "narrator" },
+      { id: "male-qn-jingying", label: "精英青年 中文男声", gender: "male", locale: "zh-CN", role: "narrator" }
+    ],
+    capabilities: ["Speech 2.8", "40 种语言", "自然韵律", "最长 10000 字符"],
+    defaultModelId: "speech-2.8-turbo",
+    defaultVoiceId: "English_Graceful_Lady"
   },
   {
     id: "google",
@@ -266,8 +291,7 @@ export const providerConfigs: ProviderConfig[] = [
       { key: "region", label: "Region", type: "text", required: false, placeholder: "ap-guangzhou" }
     ],
     models: [
-      { id: "TextToVoice", label: "TextToVoice", description: "短文本同步合成", speedRange: [0.6, 1.5] },
-      { id: "CreateTtsTask", label: "长文本任务", description: "长文本任务入口，后续版本扩展", speedRange: [0.6, 1.5] }
+      { id: "TextToVoice", label: "TextToVoice", description: "短文本同步合成", speedRange: [0.6, 1.5] }
     ],
     voices: [
       { id: "101001", label: "智瑜 女声", gender: "female", locale: "zh-CN", role: "narrator" },
@@ -275,7 +299,7 @@ export const providerConfigs: ProviderConfig[] = [
       { id: "10510000", label: "英文女声", gender: "female", locale: "en-US", role: "question" },
       { id: "10510001", label: "英文男声", gender: "male", locale: "en-US", role: "dialogue" }
     ],
-    capabilities: ["TC3 签名", "短文本", "长文本适配位", "MP3/WAV"],
+    capabilities: ["TC3 签名", "短文本同步", "MP3/WAV"],
     defaultModelId: "TextToVoice",
     defaultVoiceId: "10510000"
   },

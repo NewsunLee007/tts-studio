@@ -57,6 +57,7 @@
 }
 
 .brandTitle {
+  margin: 0;
   font: 800 20px/110% var(--display);
   color: var(--ink);
   letter-spacing: 0;
@@ -151,6 +152,46 @@
 
 .topbarActions button {
   white-space: nowrap;
+}
+
+.teacherSteps {
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: 0 22px 10px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.teacherStep {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.teacherStep b {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(93, 110, 135, 0.12);
+}
+
+.teacherStepActive {
+  color: var(--blue);
+}
+
+.teacherStepActive b,
+.teacherStepDone b {
+  color: white;
+  background: var(--blue);
+}
+
+.teacherStepDone {
+  color: var(--muted-strong);
 }
 
 .actionCluster {
@@ -327,6 +368,12 @@
   font-weight: 800;
   font-size: 13px;
   letter-spacing: 0;
+}
+
+.leftTitle,
+.cardTitle {
+  margin: 0;
+  line-height: 1.35;
 }
 
 .leftActions,
@@ -585,6 +632,23 @@ button:focus-visible {
 .bulkActions .btnGhost,
 .bulkActions .btnPrimary {
   white-space: nowrap;
+}
+
+.bulkAdvanced {
+  margin-top: 12px;
+  border-top: 1px solid rgba(93, 110, 135, 0.12);
+  padding-top: 10px;
+}
+
+.bulkAdvanced summary {
+  color: var(--muted-strong);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.advancedActions {
+  margin-top: 10px;
 }
 
 .cardGrid,
@@ -1797,6 +1861,10 @@ textarea:focus {
     font-size: 17px;
   }
 
+  .brand {
+    align-items: flex-start;
+  }
+
   .brandTitleRow {
     align-items: flex-start;
     flex-direction: column;
@@ -1888,9 +1956,49 @@ textarea:focus {
 
 @media (max-width: 720px) {
   .topbarRow,
-  .workspace {
+  .workspace,
+  .teacherSteps {
     padding-left: 12px;
     padding-right: 12px;
+  }
+
+  .topbarActions {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .topbarActions > .actionCluster:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .topbarActions .actionClusterUtility,
+  .topbarActions .actionClusterUtility .settingsButton {
+    width: auto;
+  }
+
+  .topbarActions .actionClusterExport {
+    flex-wrap: nowrap;
+  }
+
+  .cardHeadRow,
+  .leftHead {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bulkActions,
+  .leftActions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bulkActions button,
+  .leftActions button {
+    width: 100%;
+  }
+
+  .leftPane .list {
+    max-height: none;
   }
 
   .topbarStats,

@@ -1,4 +1,4 @@
-export type ProviderId = "openai" | "dashscope" | "google" | "google_gemini" | "volcengine" | "xfyun" | "tencent" | "baidu" | "huawei"
+export type ProviderId = "openai" | "dashscope" | "minimax" | "google" | "google_gemini" | "volcengine" | "xfyun" | "tencent" | "baidu" | "huawei"
 
 export type VoiceGender = "male" | "female" | "neutral"
 
@@ -41,6 +41,7 @@ export type ProviderConfig = {
   defaultModelId: string
   defaultVoiceId: string
   defaultBaseUrl?: string
+  serverConfigured?: boolean
 }
 
 export type PacePresetId = "exam_slow" | "exam_standard" | "dialogue_natural" | "quick_preview"

@@ -50,10 +50,10 @@ type Props = {
 type TabId = "providers" | "voice" | "exam" | "strategy" | "advanced"
 
 const tabs: Array<{ id: TabId; label: string }> = [
-  { id: "providers", label: "服务商" },
-  { id: "voice", label: "模型与音色" },
-  { id: "exam", label: "考试模板" },
-  { id: "strategy", label: "生成策略" },
+  { id: "providers", label: "选择服务" },
+  { id: "voice", label: "声音设置" },
+  { id: "exam", label: "开场与题号" },
+  { id: "strategy", label: "发音与语速" },
   { id: "advanced", label: "高级参数" }
 ]
 
@@ -74,6 +74,14 @@ const providerSetupGuide: Partial<Record<ProviderId, { title: string; steps: str
       { label: "获取 DashScope API Key", url: "https://help.aliyun.com/zh/model-studio/get-api-key" },
       { label: "CosyVoice API", url: "https://help.aliyun.com/zh/model-studio/non-realtime-cosyvoice-api" },
       { label: "TTS 模型列表", url: "https://help.aliyun.com/zh/model-studio/tts-model" }
+    ]
+  },
+  minimax: {
+    title: "MiniMax Speech 2.8 接入",
+    steps: ["登录 MiniMax 开放平台并创建 API Key。", "快速试听建议选择 Speech 2.8 Turbo；最终成品可切换 Speech 2.8 HD。", "英文听力优先使用 Graceful Lady 与 Trustworthy Man 等英文系统音色。"],
+    links: [
+      { label: "MiniMax 同步语音合成", url: "https://platform.minimaxi.com/docs/api-reference/speech-t2a-http" },
+      { label: "MiniMax 系统音色列表", url: "https://platform.minimaxi.com/docs/faq/system-voice-id" }
     ]
   },
   volcengine: {
@@ -113,8 +121,9 @@ const providerSetupGuide: Partial<Record<ProviderId, { title: string; steps: str
 function credentialState(provider: ProviderConfig, credentials: Record<string, string>) {
   const missing = provider.credentialFields.filter((field) => field.required && !credentials[field.key]?.trim())
   if (provider.status !== "ready") return { label: "预留入口", className: "providerStateMuted" }
+  if (provider.serverConfigured) return { label: "学校已配置", className: "providerStateReady" }
   if (missing.length) return { label: `缺少 ${missing.length} 项`, className: "providerStateWarn" }
-  return { label: "已配置", className: "providerStateReady" }
+  return { label: "本次已配置", className: "providerStateReady" }
 }
 
 function secondsFromMs(value: number | undefined, fallback: number) {
@@ -123,7 +132,7 @@ function secondsFromMs(value: number | undefined, fallback: number) {
 }
 
 export function SettingsDrawer(props: Props) {
-  const [active, setActive] = useState<TabId>("providers")
+  const [active, setActive] = useState<TabId>("voice")
   const [showReserved, setShowReserved] = useState(false)
   const [draftSpeedMultiplier, setDraftSpeedMultiplier] = useState(props.speedMultiplier)
   const [englishWordsPerMinute, setEnglishWordsPerMinute] = useState(props.template.englishWordsPerMinute || 118)
@@ -193,7 +202,7 @@ export function SettingsDrawer(props: Props) {
       <aside className="settingsDrawer">
         <div className="settingsHead">
           <div>
-            <div className="settingsEyebrow">Production Settings</div>
+            <div className="settingsEyebrow">教师设置</div>
             <div className="settingsTitle">听力制作设置</div>
           </div>
           <button className="iconButton" type="button" onClick={props.onClose} aria-label="关闭设置">
@@ -249,7 +258,9 @@ export function SettingsDrawer(props: Props) {
               <div className="settingsSectionRow">
                 <div>
                   <div className="settingsSectionTitle">{provider.label}</div>
-                  <div className="modalSub">可先填写密钥，再从服务端尝试刷新该服务商的模型/音色列表。</div>
+                  <div className="modalSub">
+                    {provider.serverConfigured ? "学校服务器已配置，可直接使用。" : "如学校未统一配置，可填写仅在本次浏览器会话中使用的临时密钥。"}
+                  </div>
                 </div>
                 <button className="btn" type="button" onClick={props.onRefreshCatalog} disabled={props.catalogState === "loading"}>
                   {props.catalogState === "loading" ? "刷新中…" : "刷新模型/音色"}
@@ -273,9 +284,11 @@ export function SettingsDrawer(props: Props) {
                 </div>
               ) : null}
               {props.catalogMessage ? <div className={props.catalogState === "error" ? "inlineError" : "inlineSuccess"}>{props.catalogMessage}</div> : null}
-              {provider.credentialFields.map((field) => (
+              {provider.serverConfigured ? <div className="inlineSuccess">密钥已由学校服务器保管，浏览器不会读取或显示。</div> : null}
+              {!provider.serverConfigured ? <div className="strategyNote">临时密钥不会长期保存在浏览器中；关闭此标签页后会自动清除。</div> : null}
+              {!provider.serverConfigured ? provider.credentialFields.map((field) => (
                 <label className="field" key={field.key}>
-                  <div className="label">{field.label}{field.required ? " *" : ""}</div>
+                  <div className="label">{field.label}{field.required && !provider.serverConfigured ? " *" : ""}</div>
                   <input
                     type={field.type === "password" || field.key === "proxyUrl" ? "password" : "text"}
                     value={props.credentials[field.key] || ""}
@@ -284,7 +297,7 @@ export function SettingsDrawer(props: Props) {
                     onChange={(event) => props.onCredentialsChange({ ...props.credentials, [field.key]: event.target.value })}
                   />
                 </label>
-              ))}
+              )) : null}
 
               <label className="field">
                 <div className="label">模型</div>

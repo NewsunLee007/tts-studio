@@ -30,11 +30,13 @@ import { analyzeExamScript, type ExamTemplate } from "./scriptAnalyzer.js"
 import { dashscopeTts } from "./tts/providers/dashscope.js"
 import { googleTts } from "./tts/providers/google.js"
 import { googleGeminiDialogueTts, googleGeminiTts } from "./tts/providers/googleGemini.js"
+import { minimaxTts } from "./tts/providers/minimax.js"
 import { openAiTts } from "./tts/providers/openai.js"
 import { tencentTts } from "./tts/providers/tencent.js"
 import { volcengineTts } from "./tts/providers/volcengine.js"
 import { xfyunTts } from "./tts/providers/xfyun.js"
 import { preparePhonicsRequest } from "./tts/phonics.js"
+import { hasServerCredentials, resolveProviderCredentials } from "./tts/credentials.js"
 import { runFfmpeg } from "./ffmpeg.js"
 import type { TtsAudio, TtsCredentials, UnifiedTtsRequest } from "./tts/types.js"
 
@@ -264,9 +266,10 @@ async function fetchWithProxy(url: string, proxyUrl: string, headers?: Record<st
 async function fetchProviderCatalog(provider: ProviderId, body: CatalogBody) {
   const config = providerConfig(provider)
   if (!config) throw new Error(`Unknown provider: ${provider}`)
-  if (provider === "openai") return fetchOpenAiCatalog(config, body)
-  if (provider === "google") return fetchGoogleCatalog(config, body)
-  if (provider === "google_gemini") return fetchGoogleGeminiCatalog(config, body)
+  const resolvedBody = { ...body, credentials: resolveProviderCredentials(provider, body.credentials) }
+  if (provider === "openai") return fetchOpenAiCatalog(config, resolvedBody)
+  if (provider === "google") return fetchGoogleCatalog(config, resolvedBody)
+  if (provider === "google_gemini") return fetchGoogleGeminiCatalog(config, resolvedBody)
   return {
     models: config.models,
     voices: config.voices,
@@ -358,7 +361,10 @@ function genericTtsMeta(provider: ProviderId, body: Partial<TtsRequestBody>, req
 
 async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
   const provider = body.provider || "openai"
-  const credentials = body.credentials || (body.apiKey ? { apiKey: body.apiKey } : {})
+  const credentials = resolveProviderCredentials(
+    provider,
+    body.credentials || (body.apiKey ? { apiKey: body.apiKey } : {})
+  )
   const phonics = preparePhonicsRequest(body.text || "", body.stylePresetId)
   const preset = body.stylePresetId ? stylePresets.find((p) => p.id === body.stylePresetId) : undefined
   const rawStylePrompt = stableStyleContract(
@@ -391,6 +397,7 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
   let audio: TtsAudio
   if (provider === "openai") audio = await openAiTts(req)
   else if (provider === "dashscope") audio = await dashscopeTts(req)
+  else if (provider === "minimax") audio = await minimaxTts(req)
   else if (provider === "google") audio = await googleTts(req)
   else if (provider === "google_gemini") audio = await googleGeminiTts(req)
   else if (provider === "volcengine") audio = await volcengineTts(req)
@@ -533,7 +540,13 @@ export async function createApp() {
 
   app.get("/api/providers", (_req, res) => {
     res.json({
-      providers: providerConfigs,
+      providers: providerConfigs.map((provider) => ({
+        ...provider,
+        serverConfigured: hasServerCredentials(
+          provider.id,
+          provider.credentialFields.filter((field) => field.required).map((field) => field.key)
+        )
+      })),
       styles: stylePresets.map((p) => ({ id: p.id, label: p.label })),
       paces: pacePresets
     })
@@ -578,7 +591,7 @@ export async function createApp() {
     const body = req.body as GeminiDialogueBody
     const prompt = typeof body.prompt === "string" ? body.prompt : ""
     const speakers = Array.isArray(body.speakers) ? body.speakers.filter((item) => item && typeof item.speaker === "string" && typeof item.voiceName === "string") : []
-    const credentials = body.credentials || {}
+    const credentials = resolveProviderCredentials("google_gemini", body.credentials)
     const speed = typeof body.speed === "number" && Number.isFinite(body.speed) ? body.speed : undefined
 
     if (!prompt.trim()) {

@@ -37,7 +37,36 @@ DATABASE_URL=postgresql://...
 
 Set `DATABASE_URL` to the Neon pooled connection string. When it is present, generated audio is stored in Neon in the `audio_blobs` table. Without it, local development uses the workspace `data/` directory.
 
-Optional provider keys can still be entered in the app UI per request. If you want server-side provider secrets later, add them as Vercel environment variables and wire them into the provider request layer.
+Provider keys should be configured as Vercel environment variables whenever possible. The browser receives only a `serverConfigured` status flag, never the secret value.
+
+```txt
+DASHSCOPE_API_KEY=
+MINIMAX_API_KEY=
+GOOGLE_TTS_API_KEY=
+GEMINI_API_KEY=
+VOLCENGINE_APP_ID=
+VOLCENGINE_ACCESS_TOKEN=
+VOLCENGINE_CLUSTER=
+XFYUN_APP_ID=
+XFYUN_API_KEY=
+XFYUN_API_SECRET=
+TENCENT_SECRET_ID=
+TENCENT_SECRET_KEY=
+TENCENT_REGION=
+OPENAI_API_KEY=
+```
+
+If a server key is unavailable, a teacher can enter a temporary key in the app. Temporary keys use browser session storage and are cleared when the tab is closed. On first load, the app also migrates and removes provider secrets left in local storage by older versions.
+
+## Verification
+
+```sh
+npm test
+npm run lint
+npm run build
+```
+
+The tests cover source-faithful script parsing, server-side credential resolution, and the MiniMax T2A v2 request contract.
 
 ## Data flow
 

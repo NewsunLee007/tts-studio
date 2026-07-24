@@ -598,9 +598,9 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
 }
 
 function examIntro(template: ExamTemplate) {
-  const year = template.schoolYear || "2025 学年"
-  const semester = template.semester || "第二学期"
-  const examName = template.examName || template.examType || "期中考试"
+  const year = template.schoolYear || ""
+  const semester = template.semester || ""
+  const examName = template.examName || template.examType || ""
   const subject = template.subject || "英语"
   const grade = template.grade ? `${template.grade} ` : ""
   const school = template.school ? `${template.school} ` : ""
@@ -619,7 +619,8 @@ function toAnalyzedSegment(item: DraftSegment): AnalyzedSegment {
   if (item.type === "silence") return { type: "silence", durationMs: item.durationMs, label: item.label, groupId: item.groupId }
 
   const question = /^(?:Number|Test)\s+(?:\d+|[a-z]+(?:\s+[a-z]+)?)/i.test(item.text.trim())
-  const role = question ? "question" : item.speakerTag === "NARRATOR" && hasChinese(item.text) ? "intro" : speakerRole(item.speakerTag)
+  const sourceIntro = item.speakerTag === "NARRATOR" && /^这里是.+听力测试[。.!！]?$/.test(item.text.trim())
+  const role = question ? "question" : sourceIntro ? "intro" : speakerRole(item.speakerTag)
   const stylePresetId: StylePresetId = question ? "question_marker" : role === "narrator" ? "teacher" : role === "intro" ? "exam_host" : "dialogue"
   const pacePreset: PacePresetId = role === "narrator" || role === "intro" || role === "question" ? "exam_slow" : "exam_standard"
   const baseNote =
@@ -647,17 +648,17 @@ function toAnalyzedSegment(item: DraftSegment): AnalyzedSegment {
 export function analyzeExamScript(input: string, template: ExamTemplate): AnalyzedSegment[] {
   const segments: AnalyzedSegment[] = []
 
-  if (template.includeIntroMusic !== false) {
+  if (template.includeIntroMusic === true) {
     const introPreset = template.introMusicPreset || "warmup"
-    segments.push({ type: "music", presetId: introPreset, durationMs: introMusicDurationMs(introPreset), label: introPreset === "piano" ? "钢琴曲导入音乐" : "导入音乐" })
+    segments.push({ type: "music", presetId: introPreset, durationMs: introMusicDurationMs(introPreset), label: introPreset === "piano" ? "模板添加 · 钢琴曲导入音乐" : "模板添加 · 导入音乐" })
   }
 
-  if (template.includeExamIntro !== false) {
+  if (template.includeExamIntro === true) {
     const groupId = "exam-intro"
     segments.push({
       type: "tts",
       text: examIntro(template),
-      label: "考试介绍",
+      label: "模板添加 · 考试介绍",
       role: "intro",
       groupId,
       directorNote: "中文播报：正式、清晰、语速偏慢，像标准普通话考试播音开场；每次重生成也保持同一播报身份、音高和能量。",

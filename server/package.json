@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.json && mkdir -p dist/assets && cp src/assets/*.mp3 dist/assets/"
+    "build": "tsc -p tsconfig.json && mkdir -p dist/assets && cp src/assets/*.mp3 dist/assets/",
+    "test": "tsx --test src/*.test.ts src/tts/*.test.ts src/tts/providers/*.test.ts"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

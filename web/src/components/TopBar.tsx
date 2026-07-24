@@ -5,7 +5,6 @@ type Props = {
   bulkRunning: boolean
   bulkProgressText: string
   onGenerateAll: () => void
-  onGenerateSelected: () => void
   onRetryFailed: () => void
   onStopGenerateAll: () => void
   hasPendingGeneration: boolean
@@ -39,8 +38,8 @@ export function TopBar(props: Props) {
           <div className="brandMark" aria-hidden="true">听</div>
           <div className="brandLayout">
             <div className="brandCopy">
-              <div className="brandTitle">听力音频制作台</div>
-              <div className="brandSub">脚本拆分 · 逐句配音 · 合成导出</div>
+              <h1 className="brandTitle">英语听力音频制作</h1>
+              <div className="brandSub">粘贴文稿，检查顺序，生成并下载</div>
             </div>
             <div className="providerBadge">
               <span>当前服务商</span>
@@ -52,17 +51,18 @@ export function TopBar(props: Props) {
         <div className="topbarActions">
           <div className="actionCluster">
             <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning || !props.hasPendingGeneration}>
-              {props.bulkRunning ? "队列中…" : props.hasPendingGeneration ? "生成未完成" : "全部已生成"}
+              {props.bulkRunning ? "正在生成…" : props.hasPendingGeneration ? "生成全部语音" : "语音已全部生成"}
             </button>
-            <button className="btn" type="button" onClick={props.onGenerateSelected} disabled={props.bulkRunning}>
-              生成选中
-            </button>
-            <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning || !props.stats.errors}>
-              重试失败
-            </button>
-            <button className="btnGhost" type="button" onClick={props.onStopGenerateAll} disabled={!props.bulkRunning}>
-              停止
-            </button>
+            {props.stats.errors ? (
+              <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning}>
+                重试失败项
+              </button>
+            ) : null}
+            {props.bulkRunning ? (
+              <button className="btnGhost" type="button" onClick={props.onStopGenerateAll}>
+                停止
+              </button>
+            ) : null}
           </div>
 
           <div className="actionCluster actionClusterExport">
@@ -71,11 +71,13 @@ export function TopBar(props: Props) {
               <option value="wav">WAV</option>
             </select>
             <button className="btnAccent" type="button" onClick={props.onCompose} disabled={!props.canCompose || props.composeRunning}>
-              {props.composeRunning ? "合成中…" : "合成"}
+              {props.composeRunning ? "正在合成…" : "合成并下载"}
             </button>
-            <button className="btn" type="button" onClick={props.onDownloadLast} disabled={!props.lastExportUrl || props.composeRunning}>
-              下载
-            </button>
+            {props.lastExportUrl ? (
+              <button className="btn" type="button" onClick={props.onDownloadLast} disabled={props.composeRunning}>
+                再次下载
+              </button>
+            ) : null}
           </div>
 
           <div className="actionCluster actionClusterUtility">
@@ -89,6 +91,12 @@ export function TopBar(props: Props) {
           </div>
         </div>
       </div>
+      <nav className="teacherSteps" aria-label="制作步骤">
+        <span className={props.stats.total ? "teacherStep teacherStepDone" : "teacherStep teacherStepActive"}><b>1</b> 粘贴文稿</span>
+        <span className={props.stats.total && !props.stats.generated ? "teacherStep teacherStepActive" : "teacherStep"}><b>2</b> 检查片段</span>
+        <span className={props.stats.generated && props.stats.generated < props.stats.tts ? "teacherStep teacherStepActive" : props.stats.generated ? "teacherStep teacherStepDone" : "teacherStep"}><b>3</b> 生成语音</span>
+        <span className={props.canCompose ? "teacherStep teacherStepActive" : "teacherStep"}><b>4</b> 合并下载</span>
+      </nav>
     </header>
   )
 }

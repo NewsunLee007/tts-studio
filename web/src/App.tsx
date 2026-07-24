@@ -133,15 +133,15 @@ function linkRepeatedAudioSegments(input: Segment[]) {
 
 const defaultTemplate: ExamTemplate = {
   school: "",
-  schoolYear: "2025 学年",
-  semester: "第二学期",
-  examName: "期中考试",
+  schoolYear: "",
+  semester: "",
+  examName: "",
   subject: "英语",
   grade: "",
-  examType: "期中考试",
-  includeIntroMusic: true,
+  examType: "",
+  includeIntroMusic: false,
   introMusicPreset: "warmup",
-  includeExamIntro: true,
+  includeExamIntro: false,
   includeQuestionNumbers: true,
   questionNumberStyle: "number",
   majorBreakMs: 10000,
@@ -173,6 +173,30 @@ function safeSetItem(key: string, value: string) {
     localStorage.setItem(key, value)
   } catch {
     // 静默处理 localStorage 写入失败
+  }
+}
+
+function safeRemoveItem(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // 旧版密钥清理失败时不阻断页面
+  }
+}
+
+function safeGetSessionItem(key: string) {
+  try {
+    return typeof window === "undefined" ? null : sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSetSessionItem(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // 临时密钥不可保存时仍保留在当前 React 状态
   }
 }
 
@@ -294,7 +318,36 @@ function providerLocalKey(provider: ProviderId, key: string) {
 
 function credentialsComplete(provider: ProviderConfig | undefined, credentials: Record<string, string>) {
   if (!provider || provider.status !== "ready") return false
+  if (provider.serverConfigured) return true
   return provider.credentialFields.every((field) => !field.required || Boolean(credentials[field.key]?.trim()))
+}
+
+function migrateLegacyCredentials(providers: Array<Pick<ProviderConfig, "id" | "credentialFields">>) {
+  for (const provider of providers) {
+    for (const field of provider.credentialFields) {
+      const key = providerLocalKey(provider.id, field.key)
+      const legacyValue = safeGetItem(key)
+      if (legacyValue && !safeGetSessionItem(key)) safeSetSessionItem(key, legacyValue)
+      if (legacyValue !== null) safeRemoveItem(key)
+    }
+  }
+}
+
+function migrateKnownLegacyCredentials() {
+  const knownFields: Partial<Record<ProviderId, string[]>> = {
+    dashscope: ["apiKey"],
+    minimax: ["apiKey"],
+    google: ["apiKey", "proxyUrl"],
+    google_gemini: ["apiKey", "proxyUrl"],
+    volcengine: ["appId", "accessToken", "cluster"],
+    xfyun: ["appId", "apiKey", "apiSecret"],
+    tencent: ["secretId", "secretKey", "appId", "region"],
+    openai: ["apiKey"]
+  }
+  migrateLegacyCredentials(Object.entries(knownFields).map(([id, fields]) => ({
+    id: id as ProviderId,
+    credentialFields: (fields || []).map((key) => ({ key, label: key, type: "password" as const, required: false }))
+  })))
 }
 
 function delay(ms: number) {
@@ -418,6 +471,7 @@ export default function App() {
   const providerRef = useRef(provider)
 
   useEffect(() => {
+    migrateKnownLegacyCredentials()
     fetch("/api/providers")
       .then(async (res) => {
         const text = await res.text()
@@ -438,6 +492,7 @@ export default function App() {
         return data as ProvidersResponse
       })
       .then((data) => {
+        migrateLegacyCredentials(data.providers)
         setProviders(data.providers)
         setStyles(data.styles)
         setPaces(data.paces?.length ? data.paces : fallbackPaces)
@@ -527,7 +582,7 @@ export default function App() {
     if (!providerConfig) return
     const nextCredentials: Record<string, string> = {}
     for (const field of providerConfig.credentialFields) {
-      nextCredentials[field.key] = safeGetItem(providerLocalKey(providerConfig.id, field.key)) || ""
+      nextCredentials[field.key] = safeGetSessionItem(providerLocalKey(providerConfig.id, field.key)) || ""
     }
     setCredentialsByProvider((prev) => ({ ...prev, [providerConfig.id]: nextCredentials }))
     const prefs = readJson(providerPrefsKey(providerConfig.id))
@@ -612,7 +667,9 @@ export default function App() {
   function setCredentials(next: Record<string, string>) {
     setCredentialsByProvider((prev) => ({ ...prev, [provider]: next }))
     for (const [key, value] of Object.entries(next)) {
-      safeSetItem(providerLocalKey(provider, key), value)
+      const storageKey = providerLocalKey(provider, key)
+      safeSetSessionItem(storageKey, value)
+      safeRemoveItem(storageKey)
     }
   }
 
@@ -1559,6 +1616,16 @@ export default function App() {
       setBulkProgressText("没有需要生成的片段")
       return
     }
+    const needsCloudTts = segments.some((item) => {
+      if (!isTtsSegment(item) || !item.text.trim() || containsPhonicsToken(item.text)) return false
+      return queue.includes(item.uid) || Boolean(item.groupId && queue.includes(item.groupId))
+    })
+    if (needsCloudTts && !credentialsComplete(providerConfig, credentials)) {
+      setBulkProgressText("")
+      setComposeError(`生成前检查：${providerConfig?.label || "当前服务商"}尚未配置。请在设置中填写临时密钥，或请管理员在服务器配置密钥。`)
+      setSettingsOpen(true)
+      return
+    }
     stopRef.current = false
     setBulkRunning(true)
     setSegments((prev) =>
@@ -1595,15 +1662,6 @@ export default function App() {
       queue.add(shouldGenerateAsGroup(item) ? item.groupId as string : item.uid)
     }
     void runQueue([...queue])
-  }
-
-  function generateSelected() {
-    if (selectedSegment?.type !== "tts") return
-    if (selectedSegment.groupId && shouldGenerateAsGroup(selectedSegment)) {
-      void runQueue([selectedSegment.groupId])
-      return
-    }
-    void runQueue([selectedSegment.repeatOfUid || selectedSegment.uid])
   }
 
   function retryFailed() {
@@ -1889,7 +1947,6 @@ export default function App() {
         bulkRunning={bulkRunning}
         bulkProgressText={bulkProgressText}
         onGenerateAll={generateAll}
-        onGenerateSelected={generateSelected}
         onRetryFailed={retryFailed}
         onStopGenerateAll={stopGenerateAll}
         canCompose={canCompose}

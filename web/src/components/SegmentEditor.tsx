@@ -48,10 +48,19 @@ function musicPresetDurationMs(presetId: "warmup" | "bell" | "soft" | "piano" | 
 }
 
 function roleLabel(segment: TtsSegment) {
-  if (segment.role === "female") return "Female / W"
-  if (segment.role === "male") return "Male / M"
-  if (segment.role === "question") return "Number"
-  return "Narrator"
+  if (segment.role === "female") return "女声（W/B）"
+  if (segment.role === "male") return "男声（M/A）"
+  if (segment.role === "question") return "题号"
+  return "旁白"
+}
+
+function segmentRoleLabel(segment: TtsSegment) {
+  if (segment.role === "female") return "女声"
+  if (segment.role === "male") return "男声"
+  if (segment.role === "question") return "题号"
+  if (segment.role === "intro") return "考试介绍"
+  if (segment.role === "narrator") return "旁白"
+  return "普通朗读"
 }
 
 function roleClass(segment: TtsSegment) {
@@ -76,7 +85,8 @@ export function SegmentEditor(props: Props) {
     return (
       <section className="rightPane">
         <div className="rightEmpty">
-          <div className="emptyTitle">片段修改生成</div>
+          <h2 className="emptyTitle">第 3 步｜调整并生成</h2>
+          <div className="emptySub">先拆分文稿，再点选一个片段进行调整。</div>
         </div>
       </section>
     )
@@ -88,7 +98,7 @@ export function SegmentEditor(props: Props) {
       <section className="rightPane">
         <div className="rightCard">
           <div className="cardHead">
-            <div className="cardTitle">无声片段</div>
+            <h2 className="cardTitle">第 3 步｜调整停顿</h2>
             <div className="cardSub">用于控制停顿</div>
           </div>
 
@@ -132,7 +142,7 @@ export function SegmentEditor(props: Props) {
       <section className="rightPane">
         <div className="rightCard inspectorCard">
           <div className="cardHead">
-            <div className="cardTitle">导入音乐</div>
+            <h2 className="cardTitle">第 3 步｜调整音乐</h2>
             <div className="cardSub">当前版本使用内置提示音生成，可在合成时自动混入开头</div>
           </div>
           <div className="cardGrid">
@@ -223,13 +233,13 @@ export function SegmentEditor(props: Props) {
     <section className="rightPane">
       <div className="rightCard inspectorCard">
         <div className="cardHead">
-          <div className="cardTitle">TTS 片段</div>
-          <div className="cardSub">{seg.role ? `角色：${seg.role}` : seg.label ? `Speaker: ${seg.label}` : "可逐段覆盖 voice / 风格"}</div>
+          <h2 className="cardTitle">第 3 步｜调整并生成</h2>
+          <div className="cardSub">{seg.role ? `朗读角色：${segmentRoleLabel(seg)}` : seg.label ? `朗读人：${seg.label}` : "可单独调整本片段的音色和风格"}</div>
         </div>
 
         {isGeminiGroup ? (
           <label className="field">
-            <div className="label">本题实际送入 TTS 的文本（可编辑）</div>
+            <div className="label">本题实际生成语音的文本（可编辑）</div>
             <textarea
               value={groupText}
               onChange={(e) =>
@@ -253,8 +263,8 @@ export function SegmentEditor(props: Props) {
           <div className="turnList">
             <div className="turnListHead">
               <div>
-                <div className="label">本题实际逐句送入 TTS 的内容</div>
-                <div className="turnListSub">国内单角色模型会按下面顺序逐条生成，每条使用对应男女声。</div>
+                <div className="label">本题实际逐句生成的内容</div>
+                <div className="turnListSub">系统会按下面顺序逐句生成，并自动使用对应男女声。</div>
               </div>
               <span>{groupSegments.length} 句</span>
             </div>
@@ -286,9 +296,9 @@ export function SegmentEditor(props: Props) {
 
         <div className="cardGrid">
           <label className="field">
-            <div className="label">Voice（留空使用全局默认）</div>
+            <div className="label">本片段音色（默认沿用全局设置）</div>
             <select
-              aria-label="Voice"
+              aria-label="本片段音色"
               value={seg.voiceId || props.globalVoiceId}
               onChange={(e) => props.onUpdate(seg.uid, { voiceId: e.target.value })}
             >
@@ -329,7 +339,7 @@ export function SegmentEditor(props: Props) {
 
         {seg.directorNote ? (
           <div className="directorNote">
-            <strong>导演提示</strong>
+            <strong>朗读提示</strong>
             <span>{seg.directorNote}</span>
           </div>
         ) : null}
@@ -374,7 +384,7 @@ export function SegmentEditor(props: Props) {
         {isAudioReuse ? (
           <div className="directorNote reuseNote">
             <strong>音频复用</strong>
-            <span>这一遍不会再次调用 TTS，会在生成第 1 遍后复用同一段音频，保证两遍声音完全一致。</span>
+            <span>这一遍不会再次调用语音服务，会直接复用第 1 遍音频，保证两遍声音完全一致。</span>
           </div>
         ) : null}
 
