@@ -34,7 +34,9 @@ npm run deploy:cloudflare
 | [豆包语音](https://docs.volcengine.com/docs/DoubaoVoice/unidirectional-streaming-text-to-speech-http?lang=zh) | Seed TTS 2.0 | 新版 API Key 与对应音色；保留旧火山引擎接入 |
 | 讯飞 / 腾讯云 | 现有兼容服务 | 按各平台开通与计费规则使用 |
 
-免费方式包括浏览器系统语音试听（无法导出制作成品），以及 [Qwen3-TTS 开源模型](https://github.com/QwenLM/Qwen3-TTS) 自行部署（需自行承担算力）。网页明确区分免费试听、试用额度和收费 API。目录核对日期：2026-10-12，实时价格请查看各卡片的官方链接。
+免费方式包括浏览器系统语音试听（无法导出制作成品）和自行部署公开模型（需自行承担算力）。[本地语音模型子页面](https://tts.newsunenglish.com/local-tts) 汇总 8 个方案，支持按 Apple Silicon / NVIDIA 筛选，并提供部署、权重、硬件和许可说明；MLX Audio 与 Qwen3-TTS 有可复制的启动示例。本页是部署指南，尚未连接用户本地服务。目录核对日期：2026-10-12，实时价格和许可请查看官方链接。
+
+全篇试听使用 Web Audio 音频时钟调度，提前下载、解码后续 3 个音频，最多提前调度 20 秒；已解码缓存最多保留 8 个片段。语音采用实际解码时长，设定停顿按时钟保留。停止、跳转和编辑音频序列会取消旧播放，失败会明确提示，不会跳过片段。网络不足时显示缓冲状态；文件本身的静音不会被自动裁剪。
 
 ## Local development
 

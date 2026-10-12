@@ -16,6 +16,7 @@ type Props = {
   baseUrl: string
   onContinue: () => void
   onAdvanced: () => void
+  onLocalModels: () => void
 }
 
 export function ServiceHub(props: Props) {
@@ -73,7 +74,7 @@ export function ServiceHub(props: Props) {
         speechSynthesis.cancel()
         const utterance = new SpeechSynthesisUtterance("Good morning. Welcome to our English listening practice.")
         utterance.lang = "en-GB"; utterance.rate = 0.85; speechSynthesis.speak(utterance)
-      }}>▷ 免费试听一句</button><a href="https://github.com/QwenLM/Qwen3-TTS" target="_blank" rel="noreferrer">开源自部署选项 ↗</a></div>
+      }}>▷ 免费试听一句</button><a href="/local-tts" onClick={event => { event.preventDefault(); props.onLocalModels() }}>开源自部署选项 →</a></div>
     </div>
     {provider ? <aside className="connectionPanel" id="service-connection" key={provider.id}>
       <h3>连接 {provider.label}</h3>

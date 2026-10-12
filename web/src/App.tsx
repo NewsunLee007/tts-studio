@@ -6,7 +6,9 @@ import { SegmentList } from "./components/SegmentList"
 import { SettingsPage } from "./components/SettingsPage"
 import { TopBar } from "./components/TopBar"
 import { ServiceHub } from "./components/ServiceHub"
+import { LocalTtsPage } from "./components/LocalTtsPage"
 import "./studio.css"
+import { PreviewPlayer } from "./lib/previewPlayer"
 import type { ExamDraftSegment } from "./lib/examScriptParser"
 import type {
   EnglishAccentId,
@@ -459,20 +461,21 @@ function requestLanguageType(text: string, provider: ProviderId, languageType: s
   return accentLocale === "en" ? undefined : accentLocale
 }
 
-function musicAssetUrl(presetId: MusicSegment["presetId"]) {
-  if (presetId === "ding") return "/media/ding.mp3"
-  if (presetId === "piano") return "/media/piano-intro.mp3"
-  return ""
-}
-
 type PreviewItem =
   | { kind: "silence"; durationMs: number; label?: string; groupId?: string }
   | { kind: "music"; presetId: MusicSegment["presetId"]; durationMs: number; label?: string; groupId?: string }
   | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string; estimatedSeconds?: number }
 
 export default function App() {
-  const [workspaceView, setWorkspaceView] = useState<"script" | "studio" | "export" | "services" | "settings">("script")
+  const [workspaceView, setWorkspaceView] = useState<"script" | "studio" | "export" | "services" | "settings" | "local">(() => window.location.pathname.replace(/\/$/, "") === "/local-tts" ? "local" : "script")
   useEffect(() => {
+    const onPopState = () => setWorkspaceView(window.location.pathname.replace(/\/$/, "") === "/local-tts" ? "local" : "services")
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
+  useEffect(() => {
+    if (workspaceView === "local" && window.location.pathname !== "/local-tts") window.history.pushState(null, "", "/local-tts")
+    if (workspaceView !== "local" && window.location.pathname.replace(/\/$/, "") === "/local-tts") window.history.pushState(null, "", "/")
     document.querySelector(".studioShell")?.scrollTo({ top: 0 })
     window.scrollTo({ top: 0 })
   }, [workspaceView])
@@ -510,6 +513,8 @@ export default function App() {
   const [previewIndex, setPreviewIndex] = useState(0)
   const [previewItemProgress, setPreviewItemProgress] = useState(0)
   const [previewError, setPreviewError] = useState("")
+  const [previewBuffering, setPreviewBuffering] = useState(false)
+  const [previewDurations, setPreviewDurations] = useState<Record<number, number>>({})
   const [pastePaneWidth, setPastePaneWidth] = useState(520)
   const [segmentPaneWidth, setSegmentPaneWidth] = useState(430)
   const [exportFormat, setExportFormat] = useState<"mp3" | "wav">(() => (safeGetItem("tts_export_format") === "wav" ? "wav" : "mp3"))
@@ -532,10 +537,7 @@ export default function App() {
   const [analysisMessage, setAnalysisMessage] = useState("")
   const [mobileInspectPanel, setMobileInspectPanel] = useState<"list" | "editor">("list")
   const stopRef = useRef(false)
-  const previewStopRef = useRef(false)
-  const previewRunIdRef = useRef(0)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const musicAudioContextRef = useRef<AudioContext | null>(null)
+  const previewPlayerRef = useRef<PreviewPlayer | null>(null)
   const providerRef = useRef(provider)
 
   useEffect(() => {
@@ -626,13 +628,14 @@ export default function App() {
   }, [segments])
 
 
-  const totalPreviewMs = useMemo(() => previewItems.reduce((total, item) => total + estimatePreviewItemMs(item), 0), [previewItems])
+  const previewDurationMs = useCallback((item: PreviewItem, index: number) => previewDurations[index] === undefined ? estimatePreviewItemMs(item) : previewDurations[index] * 1000, [previewDurations])
+  const totalPreviewMs = useMemo(() => previewItems.reduce((total, item, index) => total + previewDurationMs(item, index), 0), [previewItems, previewDurationMs])
   const previewElapsedMs = useMemo(() => {
     if (!previewItems.length) return 0
     const index = Math.max(0, Math.min(previewIndex, previewItems.length - 1))
-    const completed = previewItems.slice(0, index).reduce((total, item) => total + estimatePreviewItemMs(item), 0)
-    return Math.min(totalPreviewMs, completed + estimatePreviewItemMs(previewItems[index]) * Math.max(0, Math.min(1, previewItemProgress)))
-  }, [previewIndex, previewItemProgress, previewItems, totalPreviewMs])
+    const completed = previewItems.slice(0, index).reduce((total, item, position) => total + previewDurationMs(item, position), 0)
+    return Math.min(totalPreviewMs, completed + previewDurationMs(previewItems[index], index) * Math.max(0, Math.min(1, previewItemProgress)))
+  }, [previewIndex, previewItemProgress, previewItems, totalPreviewMs, previewDurationMs])
 
   useEffect(() => {
     if (!providerConfig) return
@@ -811,7 +814,7 @@ export default function App() {
     setSegments([])
     setSelectedUid(null)
     stopRef.current = true
-    previewStopRef.current = true
+    previewPlayerRef.current?.stop()
     setPreviewing(false)
     setPreviewIndex(0)
     setPreviewItemProgress(0)
@@ -823,206 +826,48 @@ export default function App() {
   }
 
   async function startPreview(startAt = previewIndex) {
-    if (previewing) return
     if (!previewItems.length) {
       setPreviewError("暂无可预览的已生成音频")
       return
     }
     const startIndex = Math.max(0, Math.min(previewItems.length - 1, startAt))
-    const runId = previewRunIdRef.current + 1
-    previewRunIdRef.current = runId
-    previewStopRef.current = false
     setPreviewError("")
     setPreviewing(true)
     setPreviewIndex(startIndex)
     setPreviewItemProgress(0)
 
-    const playAt = async (idx: number): Promise<void> => {
-      if (previewStopRef.current || previewRunIdRef.current !== runId) return
-      const item = previewItems[idx]
-      if (!item) {
-        setPreviewing(false)
-        return
+    try {
+      if (!previewPlayerRef.current) {
+        const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        if (!AudioContextCtor) throw new Error("当前浏览器不支持连续试听，请更新浏览器")
+        previewPlayerRef.current = new PreviewPlayer(new AudioContextCtor(), {
+          progress: (index, fraction) => { setPreviewIndex(index); setPreviewItemProgress(fraction) },
+          buffering: setPreviewBuffering,
+          duration: (index, seconds) => setPreviewDurations(previous => previous[index] === seconds ? previous : { ...previous, [index]: seconds }),
+          ended: () => { setPreviewing(false); setPreviewIndex(0); setPreviewItemProgress(0) },
+          error: message => { setPreviewError(message); setPreviewing(false) }
+        })
       }
-      setPreviewIndex(idx)
-      setPreviewItemProgress(0)
-
-      if (item.kind === "music") {
-        await playPreviewMusic(item.presetId, musicPresetDurationMs(item.presetId, item.durationMs), runId)
-        setPreviewItemProgress(1)
-        return playAt(idx + 1)
-      }
-
-      if (item.kind === "silence") {
-        const duration = Math.max(0, item.durationMs)
-        let elapsed = 0
-        const timer = window.setInterval(() => {
-          if (previewStopRef.current || previewRunIdRef.current !== runId) return
-          elapsed += 120
-          setPreviewItemProgress(duration ? Math.min(1, elapsed / duration) : 1)
-        }, 120)
-        await delay(duration)
-        window.clearInterval(timer)
-        setPreviewItemProgress(1)
-        return playAt(idx + 1)
-      }
-
-      const audio = audioRef.current
-      if (!audio) return
-      audio.pause()
-      audio.src = item.url
-      audio.currentTime = 0
-
-      try {
-        await audio.play()
-      } catch (err) {
-        if (previewStopRef.current || previewRunIdRef.current !== runId) return
-        setPreviewError(err instanceof Error ? err.message : "预览播放失败")
-        setPreviewing(false)
-        return
-      }
-
-      await new Promise<void>((resolve) => {
-        const onTimeUpdate = () => {
-          if (Number.isFinite(audio.duration) && audio.duration > 0) {
-            setPreviewItemProgress(Math.min(1, Math.max(0, audio.currentTime / audio.duration)))
-          }
-        }
-        const onEnd = () => {
-          audio.removeEventListener("ended", onEnd)
-          audio.removeEventListener("error", onError)
-          audio.removeEventListener("timeupdate", onTimeUpdate)
-          setPreviewItemProgress(1)
-          resolve()
-        }
-        const onError = () => {
-          audio.removeEventListener("ended", onEnd)
-          audio.removeEventListener("error", onError)
-          audio.removeEventListener("timeupdate", onTimeUpdate)
-          resolve()
-        }
-        audio.addEventListener("ended", onEnd)
-        audio.addEventListener("error", onError)
-        audio.addEventListener("timeupdate", onTimeUpdate)
-        onTimeUpdate()
-      })
-
-      return playAt(idx + 1)
-    }
-
-    playAt(startIndex).catch((err) => {
-      if (previewStopRef.current || previewRunIdRef.current !== runId) return
-      setPreviewError(err instanceof Error ? err.message : "预览失败")
+      document.querySelectorAll<HTMLAudioElement>(".workspace audio").forEach(audio => audio.pause())
+      await previewPlayerRef.current.start(previewItems, startIndex)
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : "无法开始试听")
       setPreviewing(false)
-    })
-  }
-
-  async function playPreviewMusic(presetId: MusicSegment["presetId"], durationMs: number, runId: number) {
-    const duration = Math.max(250, Math.min(durationMs, 30000))
-    const assetUrl = musicAssetUrl(presetId)
-    if (assetUrl) {
-      const audio = audioRef.current
-      if (!audio) {
-        await delay(duration)
-        return
-      }
-      audio.pause()
-      audio.src = assetUrl
-      audio.currentTime = 0
-      try {
-        await audio.play()
-      } catch {
-        await delay(duration)
-        return
-      }
-      await new Promise<void>((resolve) => {
-        const cleanup = () => {
-          window.clearInterval(timer)
-          audio.removeEventListener("ended", onEnd)
-          audio.removeEventListener("error", onEnd)
-        }
-        const onEnd = () => {
-          cleanup()
-          setPreviewItemProgress(1)
-          resolve()
-        }
-        const timer = window.setInterval(() => {
-          if (previewStopRef.current || previewRunIdRef.current !== runId) {
-            cleanup()
-            resolve()
-            return
-          }
-          const elapsed = audio.currentTime * 1000
-          setPreviewItemProgress(Math.min(1, elapsed / duration))
-          if (elapsed >= duration) {
-            audio.pause()
-            cleanup()
-            resolve()
-          }
-        }, 80)
-        audio.addEventListener("ended", onEnd)
-        audio.addEventListener("error", onEnd)
-      })
-      return
     }
-
-    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!AudioContextCtor) {
-      await delay(duration)
-      return
-    }
-
-    const context = musicAudioContextRef.current || new AudioContextCtor()
-    musicAudioContextRef.current = context
-    if (context.state === "suspended") await context.resume()
-
-    const now = context.currentTime
-    const end = now + duration / 1000
-    const master = context.createGain()
-    master.gain.setValueAtTime(0.0001, now)
-    master.gain.exponentialRampToValueAtTime(0.12, now + 0.06)
-    master.gain.exponentialRampToValueAtTime(0.0001, Math.max(now + 0.08, end - 0.18))
-    master.connect(context.destination)
-
-    const frequencies = presetId === "bell" ? [880, 1320] : presetId === "soft" ? [392, 523] : [523, 659, 784]
-    const oscillators = frequencies.map((frequency, index) => {
-      const osc = context.createOscillator()
-      const gain = context.createGain()
-      osc.type = index === 0 ? "sine" : "triangle"
-      osc.frequency.setValueAtTime(frequency, now)
-      gain.gain.setValueAtTime(index === 0 ? 0.95 : 0.35, now)
-      osc.connect(gain).connect(master)
-      osc.start(now)
-      osc.stop(end)
-      return osc
-    })
-
-    const startedAt = context.currentTime
-    const timer = window.setInterval(() => {
-      if (previewStopRef.current || previewRunIdRef.current !== runId) return
-      setPreviewItemProgress(Math.min(1, ((context.currentTime - startedAt) * 1000) / duration))
-    }, 80)
-
-    await delay(duration)
-    window.clearInterval(timer)
-    oscillators.forEach((osc) => osc.disconnect())
-    master.disconnect()
   }
 
   const stopPreview = useCallback(() => {
-    previewRunIdRef.current += 1
-    previewStopRef.current = true
+    previewPlayerRef.current?.stop()
     setPreviewing(false)
     setPreviewItemProgress(0)
-    const audio = audioRef.current
-    if (audio) {
-      audio.pause()
-      audio.currentTime = 0
-    }
-    if (musicAudioContextRef.current?.state === "running") {
-      void musicAudioContextRef.current.suspend()
-    }
   }, [])
+
+  useEffect(() => {
+    stopPreview()
+    setPreviewDurations({})
+  }, [previewItems, stopPreview])
+
+  useEffect(() => () => { previewPlayerRef.current?.dispose(); previewPlayerRef.current = null }, [])
 
   useEffect(() => {
     if (workspaceView !== "studio") {
@@ -1037,9 +882,7 @@ export default function App() {
     setPreviewItemProgress(0)
     if (!previewing) return
     stopPreview()
-    window.setTimeout(() => {
-      void startPreview(nextIndex)
-    }, 0)
+    void startPreview(nextIndex)
   }
 
   function clearAudio(segUid: string) {
@@ -2139,7 +1982,7 @@ export default function App() {
           <button className={workspaceView === "studio" ? "active" : ""} onClick={() => setWorkspaceView("studio")}><span>02</span>配音与试听{stats.tts ? <em>{stats.tts}</em> : null}</button>
           <button className={workspaceView === "export" ? "active" : ""} onClick={() => setWorkspaceView("export")}><span>03</span>导出成品</button>
         </nav>
-        <nav className="studioNav" aria-label="设置导航"><button className={workspaceView === "services" ? "active" : ""} onClick={() => setWorkspaceView("services")}><span>♫</span>声音服务<span className="navDot" /></button><button className={workspaceView === "settings" ? "active" : ""} onClick={() => setWorkspaceView("settings")}><span>⚙</span>制作设置</button></nav>
+        <nav className="studioNav" aria-label="设置导航"><button className={workspaceView === "services" || workspaceView === "local" ? "active" : ""} onClick={() => setWorkspaceView("services")}><span>♫</span>声音服务<span className="navDot" /></button><button className={workspaceView === "settings" ? "active" : ""} onClick={() => setWorkspaceView("settings")}><span>⚙</span>制作设置</button></nav>
         <div className="sidebarBottom"><div className="sidebarAccount"><span>N</span><div>Newsun English<small>教师音频工作台</small></div></div></div>
       </aside>
       <TopBar
@@ -2154,7 +1997,7 @@ export default function App() {
         stats={stats}
       />
 
-      {workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} /></div> : <div className="studioPageHeading"><div><h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "配音与试听" : workspaceView === "settings" ? "制作设置" : "导出成品"}</h1></div>{workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" onClick={() => setWorkspaceView("services")}><span className="voiceCardIcon">♫</span><span><small>当前声音服务</small><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置 · 点击测试或更换" : "尚未连接 · 点此开通"}</em></span><span>↗</span></button> : null}</div>}
+      {workspaceView === "local" ? <LocalTtsPage onBack={() => setWorkspaceView("services")} /> : workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} onLocalModels={() => setWorkspaceView("local")} /></div> : <div className="studioPageHeading"><div><h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "配音与试听" : workspaceView === "settings" ? "制作设置" : "导出成品"}</h1></div>{workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" onClick={() => setWorkspaceView("services")}><span className="voiceCardIcon">♫</span><span><small>当前声音服务</small><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置 · 点击测试或更换" : "尚未连接 · 点此开通"}</em></span><span>↗</span></button> : null}</div>}
 
       {workspaceView === "script" && providerConfig && !providerConfig.serverConfigured && !credentialsComplete(providerConfig, credentials) ? <div className="setupBanner"><span>连接声音服务后即可生成音频。</span><button onClick={() => setWorkspaceView("services")}>选择声音服务 →</button></div> : null}
 
@@ -2305,12 +2148,11 @@ export default function App() {
       {workspaceView === "studio" ? <div className="studioPreview" aria-label="全篇试听">
         <span className="studioPreviewLabel">全篇试听</span>
         <button className="studioPreviewButton" type="button" onClick={() => previewing ? stopPreview() : void startPreview(previewIndex)} disabled={!previewItems.length} aria-label={previewing ? "停止全篇试听" : "播放全篇试听"}>{previewing ? "■ 停止" : "▷ 播放"}</button>
+        {previewBuffering ? <span role="status">缓冲中…</span> : null}
         <input type="range" min={0} max={Math.max(0, previewItems.length - 1)} step={1} value={Math.min(previewIndex, Math.max(0, previewItems.length - 1))} onChange={event => seekPreview(Number(event.target.value))} disabled={!previewItems.length} aria-label="全篇试听进度" />
-        <span className="studioPreviewTime">{formatTime(previewElapsedMs / 1000)} / {stats.totalTime}</span>
+        <span className="studioPreviewTime">{formatTime(previewElapsedMs / 1000)} / {formatTime(totalPreviewMs / 1000)}</span>
         {previewError ? <span className="inlineError" role="status">{previewError}</span> : null}
       </div> : null}
-
-      <audio ref={audioRef} style={{ display: "none" }} />
 
       {workspaceView === "settings" ? <SettingsPage
         providers={providers}

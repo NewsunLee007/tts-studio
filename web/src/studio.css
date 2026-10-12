@@ -46,6 +46,41 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 
 /* Focused editing: one main action, natural page height, quiet controls. */
 .studioShell.view-settings .workspace { display: none; }
+.studioShell.view-local .workspace { display: none; }
+.localTtsPage { max-width: 1120px; width: 100%; padding: 30px 40px 48px; margin: 0 auto; box-sizing: border-box; }
+.localBack { padding-left: 0; margin-bottom: 12px; }
+.localHeading h1 { font-family: "Songti SC", "Noto Serif SC", serif; font-size: 30px; font-weight: 500; margin: 0 0 12px; }
+.localHeading p, .localQuickStart p, .localModelCard p, .localUsage p { color: #758271; font-size: 13px; line-height: 1.9; }
+.localToolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0 20px; }
+.localToolbar > span { font-size: 12px; color: #758271; white-space: nowrap; }
+.localQuickStart { padding: 24px; border-radius: 9px; background: #eaf1e6; margin-bottom: 24px; border: 1px solid #dbe5d5; }
+.localQuickHead { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.localQuickHead h2 { font-size: 16px; margin: 0 0 5px; }
+.localQuickHead p { margin: 0; }
+.localInstall { margin-top: 16px; }
+.localTtsPage summary { cursor: pointer; color: #53785f; font-size: 13px; padding: 8px 0; }
+.localInstall pre { overflow: auto; padding: 18px; background: #f9fbf7; border: 1px solid #dbe5d5; border-radius: 7px; font-size: 12px; line-height: 1.9; }
+.localCommandActions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; }
+.localTtsPage a { color: #28705c; font-size: 12px; text-underline-offset: 4px; }
+.localModelGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.localModelCard { background: #fff; border: 1px solid #dfe6df; border-radius: 9px; padding: 24px; min-width: 0; }
+.localModelCard h2 { font-size: 17px; margin: 17px 0 9px; }
+.localModelCard > p { min-height: 50px; margin: 0 0 18px; }
+.localModelLinks { display: flex; gap: 22px; margin-bottom: 16px; }
+.localModelCard details { border-top: 1px solid #edf0eb; padding-top: 7px; }
+.localRepo { display: block; margin-top: 12px; }
+.localUsage { margin-top: 24px; border-top: 1px solid #dfe6df; padding-top: 12px; }
+@media(max-width:760px) {
+  .localTtsPage { padding: 24px 19px 32px; }
+  .localHeading h1 { font-size: 26px; }
+  .localToolbar { flex-wrap: wrap; }
+  .localToolbar .hubFilters { width: 100%; display: flex; }
+  .localToolbar .hubFilters button { flex: 1; white-space: nowrap; font-size: 11px; padding: 9px 7px; }
+  .localModelGrid { grid-template-columns: 1fr; }
+  .localQuickStart, .localModelCard { padding: 20px; }
+  .localQuickHead { flex-wrap: wrap; }
+  .localModelCard > p { min-height: 0; }
+}
 @media(min-width:761px) { .studioSidebar > .studioNav:last-of-type { margin-top: 28px; } }
 .settingsPage { width: min(760px, calc(100% - 80px)); margin: 0 auto 32px; border: 1px solid #e0e7dc; border-radius: 9px; background: #fcfdfa; overflow: hidden; }
 .settingsLoading { padding: 32px 40px; font-size: 13px; color: #82907b; }

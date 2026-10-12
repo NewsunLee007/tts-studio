@@ -1,7 +1,7 @@
 import type { ProviderConfig } from "../types"
 
 type Props = {
-  workspaceView: "script" | "studio" | "export" | "services" | "settings"
+  workspaceView: "script" | "studio" | "export" | "services" | "settings" | "local"
   provider?: ProviderConfig
   bulkRunning: boolean
   bulkProgressText: string
