@@ -1,4 +1,5 @@
 import type { TtsAudio, UnifiedTtsRequest } from "../types.js"
+import { providerFetch } from "../providerErrors.js"
 
 type MiniMaxResponse = {
   data?: { audio?: string; status?: number }
@@ -8,7 +9,7 @@ type MiniMaxResponse = {
 }
 
 function endpointFromBaseUrl(baseUrl?: string) {
-  const base = (baseUrl || "https://api.minimaxi.com/v1/t2a_v2").replace(/\/+$/, "")
+  const base = (baseUrl || "https://api.minimax.cn/v1/t2a_v2").replace(/\/+$/, "")
   return base.endsWith("/v1/t2a_v2") ? base : `${base}/v1/t2a_v2`
 }
 
@@ -42,7 +43,7 @@ export async function minimaxTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
     subtitle_enable: false
   }
 
-  const res = await fetch(endpointFromBaseUrl(req.baseUrl), {
+  const res = await providerFetch(endpointFromBaseUrl(req.baseUrl), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

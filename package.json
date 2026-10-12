@@ -13,9 +13,13 @@
     "build": "npm -w server run build && npm -w web run build",
     "lint": "npm -w web run lint",
     "test": "npm -w server run test",
-    "smoke:compose": "node server/scripts/smoke-compose.mjs"
+    "smoke:compose": "node server/scripts/smoke-compose.mjs",
+    "deploy:cloudflare": "npm run build && wrangler deploy",
+    "check:cloudflare": "wrangler deploy --dry-run --containers-rollout=none"
   },
   "devDependencies": {
-    "@vercel/node": "^5.5.2"
+    "@cloudflare/containers": "^0.3.7",
+    "@vercel/node": "^5.5.2",
+    "wrangler": "^4.149.0"
   }
 }

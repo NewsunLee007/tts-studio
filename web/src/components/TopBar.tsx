@@ -1,6 +1,7 @@
 import type { ProviderConfig } from "../types"
 
 type Props = {
+  workspaceView: "script" | "studio" | "export" | "services" | "settings"
   provider?: ProviderConfig
   bulkRunning: boolean
   bulkProgressText: string
@@ -8,14 +9,6 @@ type Props = {
   onRetryFailed: () => void
   onStopGenerateAll: () => void
   hasPendingGeneration: boolean
-  canCompose: boolean
-  composeRunning: boolean
-  onCompose: () => void
-  lastExportUrl: string
-  onDownloadLast: () => void
-  exportFormat: "mp3" | "wav"
-  onExportFormatChange: (value: "mp3" | "wav") => void
-  onOpenSettings: () => void
   stats: {
     total: number
     tts: number
@@ -30,73 +23,48 @@ type Props = {
 
 export function TopBar(props: Props) {
   const providerLabel = props.provider?.label || "未选择服务商"
+  const statusText = props.bulkRunning
+    ? props.bulkProgressText || "正在生成语音"
+    : props.stats.errors
+      ? `${props.stats.errors} 项需要处理`
+      : props.stats.tts && props.stats.generated === props.stats.tts
+        ? "语音已全部就绪"
+        : props.stats.total
+          ? "文稿已拆分，可以生成"
+          : "请先粘贴文稿"
 
   return (
     <header className="topbar">
       <div className="topbarRow">
         <div className="brand">
           <div className="brandMark" aria-hidden="true">听</div>
-          <div className="brandLayout">
-            <div className="brandCopy">
-              <h1 className="brandTitle">英语听力音频制作</h1>
-              <div className="brandSub">粘贴文稿，检查顺序，生成并下载</div>
-            </div>
-            <div className="providerBadge">
-              <span>当前服务商</span>
-              <strong>{providerLabel}</strong>
-            </div>
+          <div className="brandCopy">
+            <h1 className="brandTitle">听力音频工作台</h1>
           </div>
         </div>
+
+        {props.workspaceView === "studio" || props.bulkRunning ? <div className="projectPulse" aria-live="polite">
+          <div className="projectPulseHead">
+            <span className="providerBadge">{providerLabel}</span>
+            <strong>{statusText}</strong>
+          </div>
+          <div className="projectProgressTrack" aria-label={`生成进度 ${props.stats.progress}%`}>
+            <span style={{ width: `${props.stats.progress}%` }} />
+          </div>
+        </div> : null}
 
         <div className="topbarActions">
-          <div className="actionCluster">
-            <button className="btnPrimary" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning || !props.hasPendingGeneration}>
-              {props.bulkRunning ? "正在生成…" : props.hasPendingGeneration ? "生成全部语音" : "语音已全部生成"}
+          {props.workspaceView === "studio" ? <button className="btnPrimary topbarGenerate" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning || !props.hasPendingGeneration}>
+            {props.bulkRunning ? "正在生成…" : props.hasPendingGeneration ? `生成剩余 ${Math.max(0, props.stats.tts - props.stats.generated)} 段` : props.stats.total ? "语音已就绪" : "等待文稿"}
+          </button> : null}
+          {props.workspaceView === "studio" && props.stats.errors ? (
+            <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning}>
+              重试失败项
             </button>
-            {props.stats.errors ? (
-              <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning}>
-                重试失败项
-              </button>
-            ) : null}
-            {props.bulkRunning ? (
-              <button className="btnGhost" type="button" onClick={props.onStopGenerateAll}>
-                停止
-              </button>
-            ) : null}
-          </div>
-
-          <div className="actionCluster actionClusterExport">
-            <select className="formatSelect" aria-label="导出格式" value={props.exportFormat} onChange={(e) => props.onExportFormatChange(e.target.value === "wav" ? "wav" : "mp3")}>
-              <option value="mp3">MP3</option>
-              <option value="wav">WAV</option>
-            </select>
-            <button className="btnAccent" type="button" onClick={props.onCompose} disabled={!props.canCompose || props.composeRunning}>
-              {props.composeRunning ? "正在合成…" : "合成并下载"}
-            </button>
-            {props.lastExportUrl ? (
-              <button className="btn" type="button" onClick={props.onDownloadLast} disabled={props.composeRunning}>
-                再次下载
-              </button>
-            ) : null}
-          </div>
-
-          <div className="actionCluster actionClusterUtility">
-            <button className="settingsButton" type="button" onClick={props.onOpenSettings}>
-              <span aria-hidden="true">⌘</span>
-              <span>设置</span>
-            </button>
-            <div className="bulkHint" aria-live="polite">
-              {props.bulkProgressText || (props.stats.queued ? `${props.stats.queued} 等待` : "")}
-            </div>
-          </div>
+          ) : null}
+          {props.bulkRunning ? <button className="btnGhost" type="button" onClick={props.onStopGenerateAll}>停止</button> : null}
         </div>
       </div>
-      <nav className="teacherSteps" aria-label="制作步骤">
-        <span className={props.stats.total ? "teacherStep teacherStepDone" : "teacherStep teacherStepActive"}><b>1</b> 粘贴文稿</span>
-        <span className={props.stats.total && !props.stats.generated ? "teacherStep teacherStepActive" : "teacherStep"}><b>2</b> 检查片段</span>
-        <span className={props.stats.generated && props.stats.generated < props.stats.tts ? "teacherStep teacherStepActive" : props.stats.generated ? "teacherStep teacherStepDone" : "teacherStep"}><b>3</b> 生成语音</span>
-        <span className={props.canCompose ? "teacherStep teacherStepActive" : "teacherStep"}><b>4</b> 合并下载</span>
-      </nav>
     </header>
   )
 }

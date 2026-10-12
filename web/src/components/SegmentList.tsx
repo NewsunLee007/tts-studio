@@ -1,4 +1,4 @@
-import type { ProviderId, Segment, TtsSegment } from "../types"
+import type { ProviderId, Segment, TtsSegment, VoicePreset, VoiceRoleKey } from "../types"
 
 type Props = {
   provider: ProviderId
@@ -10,6 +10,9 @@ type Props = {
   onAddSilence: () => void
   onAddMusic: () => void
   onClearAll: () => void
+  voiceOptions: VoicePreset[]
+  roleVoiceIds: Record<VoiceRoleKey, string>
+  onRoleVoiceChange: (role: VoiceRoleKey, voiceId: string) => void
 }
 
 function summarize(seg: Segment) {
@@ -171,14 +174,40 @@ function groupSummary(group: GeminiGroup) {
   return summary
 }
 
+function voiceCandidates(voices: VoicePreset[], role: VoiceRoleKey) {
+  const filtered =
+    role === "male"
+      ? voices.filter((voice) => voice.gender === "male")
+      : role === "female"
+        ? voices.filter((voice) => voice.gender === "female")
+        : role === "question"
+          ? voices.filter((voice) => voice.locale !== "zh-CN" && (voice.role === "question" || voice.role === "narrator" || voice.gender === "female"))
+          : voices.filter((voice) => voice.locale === "zh-CN" || voice.role === "narrator")
+  return filtered.length ? filtered : voices
+}
+
+function roleCount(segments: Segment[], role: VoiceRoleKey) {
+  return segments.filter((segment) => {
+    if (segment.type !== "tts") return false
+    if (role === "male" || role === "female") return segment.role === role
+    if (role === "question") return isQuestion(segment)
+    return (segment.role === "narrator" || segment.role === "intro" || segment.role === "neutral") && /[\u3400-\u9fff]/.test(segment.text)
+  }).length
+}
+
 export function SegmentList(props: Props) {
   const groups = groupForGemini(props.segments)
+  const roleRules: Array<{ id: VoiceRoleKey; label: string }> = [
+    { id: "narrator", label: "中文说明" },
+    { id: "question", label: "英文题号" },
+    { id: "male", label: "英语男声 M/A" },
+    { id: "female", label: "英语女声 W/B" }
+  ]
   return (
     <aside className="leftPane">
       <div className="leftHead">
         <div>
-          <h2 className="leftTitle">第 2 步｜检查朗读顺序</h2>
-          <div className="cardSub">点选片段可修改文字、角色和停顿。</div>
+          <h2 className="leftTitle">朗读顺序</h2>
         </div>
         <div className="leftActions">
           <button className="btnGhost" type="button" onClick={props.onAddTts}>
@@ -196,6 +225,36 @@ export function SegmentList(props: Props) {
         </div>
       </div>
 
+      <details className="roleRules" open={!props.segments.length}>
+        <summary>
+          <span>角色声音</span>
+          <span className="roleRulesSummary">
+            说明 {roleCount(props.segments, "narrator")} · 男 {roleCount(props.segments, "male")} · 女 {roleCount(props.segments, "female")}
+          </span>
+        </summary>
+        <div className="roleRuleGrid">
+          {roleRules.map((rule) => {
+            const options = voiceCandidates(props.voiceOptions, rule.id)
+            return (
+              <label className="field" key={rule.id}>
+                <div className="label">{rule.label}</div>
+                <select
+                  aria-label={rule.label}
+                  value={props.roleVoiceIds[rule.id] || ""}
+                  onChange={(event) => props.onRoleVoiceChange(rule.id, event.target.value)}
+                  disabled={!options.length}
+                >
+                  {options.map((voice) => (
+                    <option key={voice.id} value={voice.id}>{voice.label}</option>
+                  ))}
+                </select>
+              </label>
+            )
+          })}
+        </div>
+        <div className="roleRulesHint">应用到当前及后续同类片段。</div>
+      </details>
+
       <div className="list" role="listbox" aria-label="segments">
         {groups.map((group, idx) => {
           const selected = group.segments.some((seg) => seg.uid === props.selectedUid)
@@ -210,7 +269,7 @@ export function SegmentList(props: Props) {
               tabIndex={0}
               onClick={() => props.onSelect(group.containerUid)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") props.onSelect(group.containerUid)
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onSelect(group.containerUid) }
               }}
             >
               <div className="liTop">

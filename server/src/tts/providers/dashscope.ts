@@ -1,4 +1,5 @@
 import type { UnifiedTtsRequest, TtsAudio } from "../types.js"
+import { providerFetch } from "../providerErrors.js"
 
 function parseDashscopeAudio(json: unknown) {
   const data = json as Record<string, any>
@@ -109,8 +110,8 @@ function compatibleCosyVoice(model: string, voice?: string) {
 }
 
 const qwenVoiceByGender = {
-  female: ["Cherry", "Serena", "Chelsie"],
-  male: ["Ethan"]
+  female: ["Cherry", "Serena", "Maia", "Chelsie"],
+  male: ["Ethan", "Kai", "Neil"]
 }
 
 function qwenVoiceAttempts(preferredVoice: string) {
@@ -133,12 +134,13 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
 
   const rawBase = (req.baseUrl || "https://dashscope.aliyuncs.com/api/v1").replace(/\/+$/, "")
   const base = rawBase.endsWith("/api/v1") ? rawBase : `${rawBase}/api/v1`
-  const preferredModel = req.model || "qwen-tts"
+  const preferredModel = req.model || "qwen3-tts-instruct-flash"
+  if (preferredModel.startsWith("qwen-audio-")) return qwenAudioTts(req, apiKey, preferredModel)
   if (preferredModel.startsWith("cosyvoice-")) {
     return cosyVoiceTts(req, base, apiKey, preferredModel)
   }
 
-  const fallbackModels = ["qwen-tts", "qwen3-tts-flash", "qwen3-tts-instruct-flash"]
+  const fallbackModels = ["qwen3-tts-instruct-flash", "qwen3-tts-flash", "qwen-tts"]
   const modelAttempts = Array.from(new Set([preferredModel, ...fallbackModels]))
   const preferredVoice = req.voice || "Cherry"
   const voiceAttempts = qwenVoiceAttempts(preferredVoice)
@@ -165,10 +167,10 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
       const canSendInstructions = qwenModelSupportsInstructions(model)
       if (req.stylePrompt && canSendInstructions) {
         input.instructions = normalizeInstructions(req.stylePrompt)
-        input.optimize_instructions = false
+        input.optimize_instructions = true
       }
 
-      res = await fetch(url, {
+      res = await providerFetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -184,6 +186,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
       const modelUnsupported = /Model not exist|model.*not.*exist/i.test(errorText)
       const canFallbackVoice = res.status === 400 && voiceUnsupported && voice !== voiceAttempts[voiceAttempts.length - 1]
       const canFallbackModel = res.status === 400 && modelUnsupported && model !== modelAttempts[modelAttempts.length - 1]
+      if (canFallbackModel) break
       if (!canFallbackVoice && !canFallbackModel) {
         throw new Error(`DashScope TTS error (${res.status}): ${errorText || res.statusText}`)
       }
@@ -212,7 +215,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
     requestSummary: [
       { label: "接口", value: "Qwen multimodal-generation" },
       { label: "文本模式", value: dashscopeTextPayload(req.text).ssml ? "SSML" : "plain" },
-      { label: "指令", value: req.stylePrompt && qwenModelSupportsInstructions(usedModel) ? "已发送" : "未发送" }
+      { label: "指令", value: req.stylePrompt && qwenModelSupportsInstructions(usedModel) ? "已发送并优化" : "未发送" }
     ]
   }
 
@@ -224,7 +227,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
   }
 
   if (typeof audioUrl === "string" && audioUrl) {
-    const audioRes = await fetch(audioUrl)
+    const audioRes = await providerFetch(audioUrl)
     if (!audioRes.ok) {
       const text = await audioRes.text().catch(() => "")
       throw new Error(`DashScope audio fetch error (${audioRes.status}): ${text || audioRes.statusText}`)
@@ -284,7 +287,7 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
     ]
   }
 
-  const res = await fetch(url, {
+  const res = await providerFetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -306,7 +309,7 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
   }
 
   if (typeof audioUrl === "string" && audioUrl) {
-    const audioRes = await fetch(audioUrl)
+    const audioRes = await providerFetch(audioUrl)
     if (!audioRes.ok) {
       const text = await audioRes.text().catch(() => "")
       throw new Error(`DashScope CosyVoice audio fetch error (${audioRes.status}): ${text || audioRes.statusText}`)
@@ -316,4 +319,30 @@ async function cosyVoiceTts(req: UnifiedTtsRequest, base: string, apiKey: string
   }
 
   throw new Error(`Unexpected DashScope CosyVoice response: audio payload not found`)
+}
+
+async function qwenAudioTts(req: UnifiedTtsRequest, apiKey: string, model: string): Promise<TtsAudio> {
+  const workspace = req.credentials.workspaceId?.trim()
+  if (!workspace || !/^[a-zA-Z0-9-]+$/.test(workspace)) throw new Error("Qwen-Audio 3.1 需要北京地域的工作空间 ID，请在声音服务中填写。")
+  const voice = req.voice || "Emily_v3.1"
+  if (!voice.endsWith("_v3.1")) throw new Error("Qwen-Audio 3.1 需要匹配的 v3.1 音色，请重新选择音色。")
+  const res = await providerFetch(`https://${workspace}.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, input: {
+      text: req.text, voice, format: "mp3", sample_rate: 24000,
+      rate: Math.max(0.5, Math.min(2, req.speed || 1)),
+      ...(req.stylePrompt ? { instruction: normalizeInstructions(req.stylePrompt) } : {})
+    } })
+  })
+  if (!res.ok) throw new Error(`DashScope (${res.status}): ${(await res.text()).slice(0, 1200)}`)
+  const { audioUrl, audioBase64 } = parseDashscopeAudio(await res.json())
+  let bytes: Buffer
+  if (typeof audioBase64 === "string" && audioBase64) bytes = Buffer.from(audioBase64, "base64")
+  else if (typeof audioUrl === "string" && audioUrl) {
+    const audio = await providerFetch(audioUrl)
+    if (!audio.ok) throw new Error(`DashScope audio (${audio.status})`)
+    bytes = Buffer.from(await audio.arrayBuffer())
+  } else throw new Error("DashScope response missing audio")
+  return { bytes, format: "mp3", meta: { provider: "dashscope", usedModel: model, usedVoice: voice, instructionMode: req.stylePrompt ? "sent" : "not-supported" } }
 }

@@ -2,12 +2,9 @@ import { useEffect, useMemo, useState } from "react"
 import type { EnglishAccentId, ExamTemplate, PacePreset, ProviderConfig, ProviderId, VoiceGender } from "../types"
 
 type Props = {
-  open: boolean
   providers: ProviderConfig[]
   provider: ProviderId
-  onProviderChange: (provider: ProviderId) => void
-  credentials: Record<string, string>
-  onCredentialsChange: (value: Record<string, string>) => void
+  onOpenServices: () => void
   modelId: string
   onModelIdChange: (value: string) => void
   voiceId: string
@@ -44,96 +41,24 @@ type Props = {
   onApplyTargetSpeakingRates: (englishWordsPerMinute: number, chineseCharsPerMinute: number) => void
   stylePrompt: string
   onStylePromptChange: (value: string) => void
-  onClose: () => void
 }
 
-type TabId = "providers" | "voice" | "exam" | "strategy" | "advanced"
+type TabId = "voice" | "exam" | "strategy" | "advanced"
 
 const tabs: Array<{ id: TabId; label: string }> = [
-  { id: "providers", label: "选择服务" },
-  { id: "voice", label: "声音设置" },
-  { id: "exam", label: "开场与题号" },
+  { id: "voice", label: "声音" },
   { id: "strategy", label: "发音与语速" },
-  { id: "advanced", label: "高级参数" }
+  { id: "exam", label: "停顿与题号" },
+  { id: "advanced", label: "高级" }
 ]
-
-const providerSetupGuide: Partial<Record<ProviderId, { title: string; steps: string[]; links: Array<{ label: string; url: string }> }>> = {
-  google: {
-    title: "Google Cloud TTS 接入",
-    steps: ["创建或选择 Google Cloud 项目。", "启用 Cloud Text-to-Speech API，并确认项目已绑定结算账号。", "在 APIs & Services → Credentials 创建 API key。", "中国大陆网络通常无法直连 Google API，需要把 Base URL 配置为可访问的代理网关。"],
-    links: [
-      { label: "Google TTS 开始使用", url: "https://cloud.google.com/text-to-speech/docs/before-you-begin" },
-      { label: "Google API 密钥", url: "https://console.cloud.google.com/apis/credentials" },
-      { label: "启用 Text-to-Speech API", url: "https://console.cloud.google.com/apis/library/texttospeech.googleapis.com" }
-    ]
-  },
-  dashscope: {
-    title: "阿里云 DashScope / 百炼接入",
-    steps: ["登录阿里云百炼控制台。", "创建或复制 API Key。", "确认账号地域与 Base URL 一致：国内默认 dashscope.aliyuncs.com，国际账号使用 dashscope-intl.aliyuncs.com。", "快速预览优先 Qwen3-TTS Flash；需要导演提示时选 Qwen3-TTS Instruct；系统音色正式导出使用 CosyVoice v3。"],
-    links: [
-      { label: "获取 DashScope API Key", url: "https://help.aliyun.com/zh/model-studio/get-api-key" },
-      { label: "CosyVoice API", url: "https://help.aliyun.com/zh/model-studio/non-realtime-cosyvoice-api" },
-      { label: "TTS 模型列表", url: "https://help.aliyun.com/zh/model-studio/tts-model" }
-    ]
-  },
-  minimax: {
-    title: "MiniMax Speech 2.8 接入",
-    steps: ["登录 MiniMax 开放平台并创建 API Key。", "快速试听建议选择 Speech 2.8 Turbo；最终成品可切换 Speech 2.8 HD。", "英文听力优先使用 Graceful Lady 与 Trustworthy Man 等英文系统音色。"],
-    links: [
-      { label: "MiniMax 同步语音合成", url: "https://platform.minimaxi.com/docs/api-reference/speech-t2a-http" },
-      { label: "MiniMax 系统音色列表", url: "https://platform.minimaxi.com/docs/faq/system-voice-id" }
-    ]
-  },
-  volcengine: {
-    title: "火山引擎语音接入",
-    steps: ["开通火山引擎语音合成服务。", "在控制台获取 App ID、Access Token 和可用 cluster。", "确认音色 voice_type 已在账号中开通。"],
-    links: [
-      { label: "火山引擎语音技术控制台", url: "https://console.volcengine.com/speech" },
-      { label: "火山引擎文档中心", url: "https://www.volcengine.com/docs" }
-    ]
-  },
-  xfyun: {
-    title: "讯飞在线语音合成接入",
-    steps: ["在讯飞开放平台创建在线语音合成应用。", "复制 AppID、APIKey、APISecret。", "如果使用精品发音人，需要在控制台确认发音人已开通。"],
-    links: [
-      { label: "讯飞在线语音合成 API", url: "https://www.xfyun.cn/doc/tts/online_tts/API.html" },
-      { label: "讯飞开放平台控制台", url: "https://console.xfyun.cn/" }
-    ]
-  },
-  tencent: {
-    title: "腾讯云 TTS 接入",
-    steps: ["开通腾讯云文本转语音服务。", "在访问管理中获取 SecretId 和 SecretKey。", "Region 默认可用 ap-guangzhou；英文音色需确认账号支持对应 VoiceType。"],
-    links: [
-      { label: "腾讯云文本转语音文档", url: "https://cloud.tencent.com/document/product/1073" },
-      { label: "腾讯云 API 密钥", url: "https://console.cloud.tencent.com/cam/capi" }
-    ]
-  },
-  openai: {
-    title: "OpenAI TTS 接入",
-    steps: ["登录 OpenAI Platform。", "创建 API key。", "确认项目额度和模型权限。"],
-    links: [
-      { label: "OpenAI API Keys", url: "https://platform.openai.com/api-keys" },
-      { label: "OpenAI Text to Speech 文档", url: "https://platform.openai.com/docs/guides/text-to-speech" }
-    ]
-  }
-}
-
-function credentialState(provider: ProviderConfig, credentials: Record<string, string>) {
-  const missing = provider.credentialFields.filter((field) => field.required && !credentials[field.key]?.trim())
-  if (provider.status !== "ready") return { label: "预留入口", className: "providerStateMuted" }
-  if (provider.serverConfigured) return { label: "学校已配置", className: "providerStateReady" }
-  if (missing.length) return { label: `缺少 ${missing.length} 项`, className: "providerStateWarn" }
-  return { label: "本次已配置", className: "providerStateReady" }
-}
 
 function secondsFromMs(value: number | undefined, fallback: number) {
   const ms = typeof value === "number" && Number.isFinite(value) ? value : fallback
   return Math.max(0, Number((ms / 1000).toFixed(1)))
 }
 
-export function SettingsDrawer(props: Props) {
+export function SettingsPage(props: Props) {
   const [active, setActive] = useState<TabId>("voice")
-  const [showReserved, setShowReserved] = useState(false)
   const [draftSpeedMultiplier, setDraftSpeedMultiplier] = useState(props.speedMultiplier)
   const [englishWordsPerMinute, setEnglishWordsPerMinute] = useState(props.template.englishWordsPerMinute || 118)
   const [chineseCharsPerMinute, setChineseCharsPerMinute] = useState(props.template.chineseCharsPerMinute || 230)
@@ -145,33 +70,23 @@ export function SettingsDrawer(props: Props) {
     "This is the English listening test. Number 1. Listen to the dialogue and choose the best answer. You will hear the conversation twice."
   )
   const provider = props.providers.find((item) => item.id === props.provider) || props.providers[0]
-  const setupGuide = providerSetupGuide[props.provider]
   const voiceOptions = useMemo(() => {
-    const list = provider?.voices || []
+    const allVoices = provider?.voices || []
+    const list =
+      provider?.id === "dashscope"
+        ? allVoices.filter((voice) => {
+            if (voice.modelIds) return voice.modelIds.includes(props.modelId)
+            if (props.modelId.startsWith("qwen-audio-")) return false
+            const cosyVoice = /^loo?ng/i.test(voice.id)
+            return props.modelId.startsWith("cosyvoice-") ? cosyVoice : !cosyVoice
+          })
+        : allVoices
     const filtered = props.voiceGender === "all" ? list : list.filter((voice) => voice.gender === props.voiceGender)
     return Array.from(new Map(filtered.map((voice) => [voice.id, voice])).values())
-  }, [provider, props.voiceGender])
-  const selectedModel = useMemo(() => provider?.models.find((model) => model.id === props.modelId), [provider, props.modelId])
-  const providerModelAdvice = (() => {
-    if (!provider) return ""
-    if (provider.id === "dashscope") {
-      if (props.modelId.includes("instruct")) return "推荐用于正式导出和风格控制：会发送导演提示，适合稳定考试口吻、角色和发音标准。"
-      if (props.modelId.includes("cosyvoice")) return "推荐用于正式质量路线：使用 CosyVoice v3 系统音色；v3.5 属于声音设计/复刻路线，不直接搭配这些内置系统音色。"
-      if (props.modelId.includes("qwen3-tts-flash")) return "推荐用于快速草稿和批量预览：不发送导演提示，速度快、稳定性高。"
-      return "旧版兼容入口：建议只在账号未开通 Qwen3/CosyVoice 时使用。"
-    }
-    if (provider.id === "volcengine" || provider.id === "xfyun" || provider.id === "tencent") {
-      return "国内传统 TTS 主要靠音色、语言、语速、音高、音量控制；导演提示不会作为自然语言指令发送。"
-    }
-    return ""
-  })()
+  }, [provider, props.modelId, props.voiceGender])
   const geminiMaleVoices = useMemo(() => (provider?.voices || []).filter((voice) => voice.gender === "male"), [provider])
   const geminiFemaleVoices = useMemo(() => (provider?.voices || []).filter((voice) => voice.gender === "female"), [provider])
 
-  const providerCards = useMemo(() => {
-    const list = showReserved ? props.providers : props.providers.filter((item) => item.status === "ready" || item.id === props.provider)
-    return [...list].sort((a, b) => (a.status === b.status ? 0 : a.status === "ready" ? -1 : 1))
-  }, [props.providers, props.provider, showReserved])
 
   useEffect(() => {
     setDraftSpeedMultiplier(props.speedMultiplier)
@@ -194,111 +109,33 @@ export function SettingsDrawer(props: Props) {
     return () => window.clearTimeout(timer)
   }, [applyNotice])
 
-  if (!props.open || !provider) return null
+  if (!provider) return <p className="settingsLoading" role="status">正在加载设置…</p>
 
   return (
-    <div className="settingsLayer" role="dialog" aria-modal="true" aria-label="settings">
-      <button className="settingsScrim" type="button" onClick={props.onClose} aria-label="关闭设置背景" />
-      <aside className="settingsDrawer">
-        <div className="settingsHead">
-          <div>
-            <div className="settingsEyebrow">教师设置</div>
-            <div className="settingsTitle">听力制作设置</div>
-          </div>
-          <button className="iconButton" type="button" onClick={props.onClose} aria-label="关闭设置">
-            ×
-          </button>
-        </div>
-
-        <div className="settingsTabs" role="tablist">
+    <section className="settingsPage" aria-label="制作设置">
+        <div className="settingsTabs" role="tablist" aria-label="设置分类" onKeyDown={event => {
+          const index = tabs.findIndex(tab => tab.id === active)
+          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1
+          if (next < 0) return
+          event.preventDefault()
+          setActive(tabs[next].id)
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+        }}>
           {tabs.map((tab) => (
-            <button key={tab.id} type="button" className={active === tab.id ? "settingsTab settingsTabActive" : "settingsTab"} onClick={() => setActive(tab.id)}>
+            <button key={tab.id} type="button" role="tab" id={`settings-tab-${tab.id}`} aria-selected={active === tab.id} aria-controls="settings-panel" tabIndex={active === tab.id ? 0 : -1} className={active === tab.id ? "settingsTab settingsTabActive" : "settingsTab"} onClick={() => setActive(tab.id)}>
               {tab.label}
             </button>
           ))}
         </div>
 
-        <div className="settingsBody">
-          {active === "providers" ? (
-            <>
-              <label className="checkRow" style={{ marginBottom: 12 }}>
-                <input type="checkbox" checked={showReserved} onChange={(event) => setShowReserved(event.target.checked)} />
-                <span>显示预留入口</span>
-              </label>
-              <div className="providerGrid">
-                {providerCards.map((item) => {
-                const state = credentialState(item, item.id === props.provider ? props.credentials : {})
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={item.id === props.provider ? "providerCard providerCardActive" : "providerCard"}
-                    onClick={() => props.onProviderChange(item.id)}
-                  >
-                    <div className="providerTop">
-                      <span>{item.label}</span>
-                      <em className={state.className}>{state.label}</em>
-                    </div>
-                    <p>{item.description}</p>
-                    <div className="providerMeta">{item.models.length} 模型 · {item.voices.length} 音色 · {item.region === "china" ? "中国服务商" : "全球服务"}</div>
-                    <div className="capList">
-                      {item.capabilities.slice(0, 4).map((cap) => (
-                        <span key={cap}>{cap}</span>
-                      ))}
-                    </div>
-                  </button>
-                )
-                })}
-              </div>
-            </>
-          ) : null}
-
+        <div className="settingsBody" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${active}`}>
           {active === "voice" ? (
             <div className="settingsForm">
-              <div className="settingsSectionRow">
-                <div>
-                  <div className="settingsSectionTitle">{provider.label}</div>
-                  <div className="modalSub">
-                    {provider.serverConfigured ? "学校服务器已配置，可直接使用。" : "如学校未统一配置，可填写仅在本次浏览器会话中使用的临时密钥。"}
-                  </div>
-                </div>
-                <button className="btn" type="button" onClick={props.onRefreshCatalog} disabled={props.catalogState === "loading"}>
-                  {props.catalogState === "loading" ? "刷新中…" : "刷新模型/音色"}
-                </button>
+              <div className="settingsServiceRow">
+                <span><small>当前服务</small><strong>{provider.label}</strong></span>
+                <button className="textButton" type="button" onClick={props.onOpenServices}>连接与更换 ↗</button>
               </div>
-              {setupGuide ? (
-                <div className="setupGuide">
-                  <div className="setupGuideTitle">{setupGuide.title}</div>
-                  <ol>
-                    {setupGuide.steps.map((step) => (
-                      <li key={step}>{step}</li>
-                    ))}
-                  </ol>
-                  <div className="setupLinks">
-                    {setupGuide.links.map((link) => (
-                      <a key={link.url} href={link.url} target="_blank" rel="noreferrer">
-                        {link.label}
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {props.catalogMessage ? <div className={props.catalogState === "error" ? "inlineError" : "inlineSuccess"}>{props.catalogMessage}</div> : null}
-              {provider.serverConfigured ? <div className="inlineSuccess">密钥已由学校服务器保管，浏览器不会读取或显示。</div> : null}
-              {!provider.serverConfigured ? <div className="strategyNote">临时密钥不会长期保存在浏览器中；关闭此标签页后会自动清除。</div> : null}
-              {!provider.serverConfigured ? provider.credentialFields.map((field) => (
-                <label className="field" key={field.key}>
-                  <div className="label">{field.label}{field.required && !provider.serverConfigured ? " *" : ""}</div>
-                  <input
-                    type={field.type === "password" || field.key === "proxyUrl" ? "password" : "text"}
-                    value={props.credentials[field.key] || ""}
-                    placeholder={field.placeholder}
-                    autoComplete="off"
-                    onChange={(event) => props.onCredentialsChange({ ...props.credentials, [field.key]: event.target.value })}
-                  />
-                </label>
-              )) : null}
-
+              {props.catalogMessage ? <div className={props.catalogState === "error" ? "inlineError" : "settingsHelp"} role="status">{props.catalogMessage}</div> : null}
               <label className="field">
                 <div className="label">模型</div>
                 <select aria-label="模型" value={props.modelId} onChange={(event) => props.onModelIdChange(event.target.value)}>
@@ -307,15 +144,9 @@ export function SettingsDrawer(props: Props) {
                   ))}
                 </select>
               </label>
-              {selectedModel ? (
-                <div className="modelAdvice">
-                  <strong>{selectedModel.supportsInstructions ? "支持导演指令" : "不发送导演指令"}</strong>
-                  <span>{providerModelAdvice || selectedModel.description}</span>
-                </div>
-              ) : null}
 
-              <div className="field">
-                <div className="label">音色筛选</div>
+              <div className="field settingsVoiceFilter">
+                <div className="label">音色</div>
                 <div className="segmented">
                   {(["all", "female", "male", "neutral"] as const).map((gender) => (
                     <button key={gender} type="button" className={props.voiceGender === gender ? "segBtn segBtnActive" : "segBtn"} onClick={() => props.onVoiceGenderChange(gender)}>
@@ -326,13 +157,14 @@ export function SettingsDrawer(props: Props) {
               </div>
 
               <label className="field">
-                <div className="label">默认音色</div>
+                <div className="label">默认朗读声音</div>
                 <select aria-label="默认音色" value={props.voiceId} onChange={(event) => props.onVoiceIdChange(event.target.value)}>
                   {voiceOptions.map((voice) => (
                     <option key={voice.id} value={voice.id}>{voice.label}</option>
                   ))}
                 </select>
               </label>
+              <button className="textButton settingsRefresh" type="button" onClick={props.onRefreshCatalog} disabled={props.catalogState === "loading"}>{props.catalogState === "loading" ? "更新中…" : "更新模型与音色 ↻"}</button>
               {props.provider === "google_gemini" ? (
                 <div className="settingsTwoCol">
                   <label className="field">
@@ -358,7 +190,7 @@ export function SettingsDrawer(props: Props) {
 
           {active === "exam" ? (
             <div className="settingsForm">
-              <div className="settingsTwoCol">
+              <details className="settingsDetails"><summary>考试信息</summary><div className="settingsTwoCol">
                 <label className="field">
                   <div className="label">学校</div>
                   <input value={props.template.school} onChange={(event) => props.onTemplateChange({ school: event.target.value })} />
@@ -384,6 +216,7 @@ export function SettingsDrawer(props: Props) {
                   <input value={props.template.subject} onChange={(event) => props.onTemplateChange({ subject: event.target.value })} />
                 </label>
               </div>
+              </details>
               <label className="checkRow">
                 <input type="checkbox" checked={props.template.includeIntroMusic} onChange={(event) => props.onTemplateChange({ includeIntroMusic: event.target.checked })} />
                 <span>导入音乐</span>
@@ -416,7 +249,7 @@ export function SettingsDrawer(props: Props) {
                 <div className="speedCalibratorHead">
                   <div>
                     <div className="label">全局停顿间隔</div>
-                    <p>用于新拆分的考试脚本，也可一键更新当前片段中的大题/小题间隔。</p>
+                    <p>应用到当前片段和后续文稿。</p>
                   </div>
                 </div>
                 <div className="settingsTwoCol">
@@ -445,7 +278,7 @@ export function SettingsDrawer(props: Props) {
                       setApplyNotice(`已应用停顿：大题 ${majorBreakSeconds.toFixed(1)} 秒，小题 ${minorBreakSeconds.toFixed(1)} 秒，题号后 ${questionNumberGapSeconds.toFixed(1)} 秒。`)
                     }}
                   >
-                    一键应用间隔
+                    应用停顿
                   </button>
                 </div>
                 {applyNotice ? <div className="inlineSuccess" role="status">{applyNotice}</div> : null}
@@ -467,18 +300,18 @@ export function SettingsDrawer(props: Props) {
                   }}
                 >
                   {props.englishAccentOptions.map((accent) => (
-                    <option key={accent.id} value={accent.id}>{accent.label} · {accent.description}</option>
+                    <option key={accent.id} value={accent.id}>{accent.label}</option>
                   ))}
                 </select>
               </label>
               <div className="strategyNote">
-                当前默认使用英式标准。Google 等具备英音音色的服务商会优先使用 en-GB 音色；阿里等不区分英美音色的服务商会通过导演提示约束发音。
+                优先匹配口音音色；支持朗读指令的模型会同时接收发音要求。
               </div>
               <div className="speedCalibrator">
                 <div className="speedCalibratorHead">
                   <div>
                     <div className="label">目标语速控制</div>
-                    <p>英语按每分钟单词数控制，中文按每分钟汉字数控制；系统会自动换算到底层服务商的倍率参数。</p>
+                    <p>每分钟朗读的英文单词数 / 中文字数。</p>
                   </div>
                   <strong>{englishWordsPerMinute} WPM / {chineseCharsPerMinute} CPM</strong>
                 </div>
@@ -520,13 +353,13 @@ export function SettingsDrawer(props: Props) {
                 {applyNotice ? <div className="inlineSuccess" role="status">{applyNotice}</div> : null}
                 {props.speedSampleError ? <div className="inlineError">{props.speedSampleError}</div> : null}
               </div>
-              <label className="field">
-                <div className="label">全局导演提示</div>
+              <details className="settingsDetails"><summary>朗读风格</summary><label className="field">
+                <div className="label">全局朗读指令</div>
                 <textarea value={props.stylePrompt} onChange={(event) => props.onStylePromptChange(event.target.value)} rows={5} placeholder="例如：整体像正式高考英语听力，旁白清楚，对话自然，题号短促。" />
               </label>
               <div className="strategyNote">
-                脚本导演会先根据全文分配角色、题号、停顿和语气，再逐段调用 TTS。支持指令的服务商会收到导演提示；不支持的服务商会降级到音色、语速和停顿。
-              </div>
+                仅支持朗读指令的模型会使用此设置。
+              </div></details>
             </div>
           ) : null}
 
@@ -552,11 +385,11 @@ export function SettingsDrawer(props: Props) {
                 </>
               ) : null}
               {props.provider === "google" ? <div className="strategyNote">Google TTS 需要能访问 texttospeech.googleapis.com；如在网络受限环境，请在 Base URL 填写你自己的代理/网关地址。</div> : null}
-              <div className="strategyNote">高级参数用于兼容私有网关或服务商代理。一般不需要修改。</div>
+              <p className="settingsHelp">默认配置通常无需修改。</p>
             </div>
           ) : null}
         </div>
-      </aside>
-    </div>
+        <div className="settingsFooter"><span>已有音频需重新生成才会应用新设置。</span></div>
+    </section>
   )
 }

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 import "./App.css"
 import { BulkPaste } from "./components/BulkPaste"
 import { SegmentEditor } from "./components/SegmentEditor"
 import { SegmentList } from "./components/SegmentList"
-import { SettingsDrawer } from "./components/SettingsDrawer"
+import { SettingsPage } from "./components/SettingsPage"
 import { TopBar } from "./components/TopBar"
+import { ServiceHub } from "./components/ServiceHub"
+import "./studio.css"
 import type { ExamDraftSegment } from "./lib/examScriptParser"
 import type {
   EnglishAccentId,
@@ -16,16 +18,20 @@ import type {
   ProviderConfig,
   ProviderId,
   ProvidersResponse,
+  ScriptAnalysisMeta,
   Segment,
   SegmentPatch,
   TtsGenerationMeta,
   TtsSegment,
-  VoiceGender
+  VoiceGender,
+  VoicePreset,
+  VoiceRoleKey
 } from "./types"
 
 type ApplyMode = "append" | "replace"
 type DirectorSegment = Segment & { stylePresetId?: string }
 type TtsResult = { id?: string; url?: string; error?: string; meta?: TtsGenerationMeta }
+type AutoWorkflowStage = "idle" | "analyzing" | "ready" | "generating" | "compose-pending" | "composing" | "done" | "error"
 
 function isSecondPassSegment(segment: Segment) {
   return segment.type === "tts" && /第\s*2\s*遍|第2遍/.test(segment.directorNote || "")
@@ -384,7 +390,55 @@ function targetSpeedForText(text: string, template: ExamTemplate) {
     return Math.max(0.5, Math.min(2, target / 250))
   }
   const target = Number.isFinite(template.englishWordsPerMinute) ? template.englishWordsPerMinute : 118
-  return Math.max(0.5, Math.min(2, target / 150))
+  return Math.max(0.5, Math.min(2, target / 130))
+}
+
+function compatibleVoices(provider: ProviderConfig | undefined, model: string) {
+  const voices = provider?.voices || []
+  if (provider?.id !== "dashscope") return voices
+  const cosyVoiceModel = model.startsWith("cosyvoice-")
+  return voices.filter((voice) => {
+    if (voice.modelIds) return voice.modelIds.includes(model)
+    if (model.startsWith("qwen-audio-")) return false
+    const cosyVoice = /^loo?ng/i.test(voice.id)
+    return cosyVoiceModel ? cosyVoice : !cosyVoice
+  })
+}
+
+function defaultRoleVoices(provider: ProviderConfig | undefined, model: string): Record<VoiceRoleKey, string> {
+  const voices = compatibleVoices(provider, model)
+  const fallback = voices.find((voice) => voice.id === provider?.defaultVoiceId)?.id || voices[0]?.id || ""
+  const narrator =
+    voices.find((voice) => voice.locale === "zh-CN" && voice.role === "narrator") ||
+    voices.find((voice) => voice.id === "Neil") ||
+    voices.find((voice) => voice.role === "narrator") ||
+    voices[0]
+  const question =
+    voices.find((voice) => voice.role === "question" && voice.locale !== "zh-CN") ||
+    voices.find((voice) => voice.id === "Cherry") ||
+    voices.find((voice) => voice.gender === "female" && voice.locale !== "zh-CN") ||
+    voices[0]
+  const male =
+    voices.find((voice) => voice.gender === "male" && voice.role === "dialogue") ||
+    voices.find((voice) => voice.gender === "male") ||
+    voices[0]
+  const female =
+    voices.find((voice) => voice.gender === "female" && voice.role === "dialogue") ||
+    voices.find((voice) => voice.gender === "female") ||
+    voices[0]
+  return {
+    narrator: narrator?.id || fallback,
+    question: question?.id || fallback,
+    male: male?.id || fallback,
+    female: female?.id || fallback
+  }
+}
+
+function voiceRuleForSegment(segment: TtsSegment): VoiceRoleKey | null {
+  if (segment.role === "male" || segment.role === "female") return segment.role
+  if (segment.role === "question" || segment.stylePresetId === "question_marker") return "question"
+  if (hasChineseText(segment.text) && (segment.role === "narrator" || segment.role === "intro" || segment.role === "neutral")) return "narrator"
+  return null
 }
 
 function languageRateDirective(text: string, template: ExamTemplate) {
@@ -417,6 +471,11 @@ type PreviewItem =
   | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string; estimatedSeconds?: number }
 
 export default function App() {
+  const [workspaceView, setWorkspaceView] = useState<"script" | "studio" | "export" | "services" | "settings">("script")
+  useEffect(() => {
+    document.querySelector(".studioShell")?.scrollTo({ top: 0 })
+    window.scrollTo({ top: 0 })
+  }, [workspaceView])
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [styles, setStyles] = useState<Array<{ id: string; label: string }>>([])
   const [paces, setPaces] = useState<PacePreset[]>(fallbackPaces)
@@ -427,6 +486,12 @@ export default function App() {
   const [languageType, setLanguageType] = useState("English")
   const [voiceGender, setVoiceGender] = useState<VoiceGender | "all">("all")
   const [voiceId, setVoiceId] = useState("")
+  const [roleVoiceIds, setRoleVoiceIds] = useState<Record<VoiceRoleKey, string>>({
+    narrator: "",
+    question: "",
+    male: "",
+    female: ""
+  })
   const [geminiMaleVoiceId, setGeminiMaleVoiceId] = useState("")
   const [geminiFemaleVoiceId, setGeminiFemaleVoiceId] = useState("")
   const [stylePresetId] = useState("exam_host")
@@ -441,7 +506,6 @@ export default function App() {
     const raw = readJson("tts_exam_template")
     return raw && typeof raw === "object" ? { ...defaultTemplate, ...(raw as Record<string, unknown>) } : defaultTemplate
   })
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [previewIndex, setPreviewIndex] = useState(0)
   const [previewItemProgress, setPreviewItemProgress] = useState(0)
@@ -463,6 +527,10 @@ export default function App() {
   const [bulkRunning, setBulkRunning] = useState(false)
   const [bulkProgressText, setBulkProgressText] = useState("")
   const [analyzing, setAnalyzing] = useState(false)
+  const [autoWorkflow, setAutoWorkflow] = useState<AutoWorkflowStage>("idle")
+  const [scriptAssist, setScriptAssist] = useState<ProvidersResponse["scriptAssist"]>()
+  const [analysisMessage, setAnalysisMessage] = useState("")
+  const [mobileInspectPanel, setMobileInspectPanel] = useState<"list" | "editor">("list")
   const stopRef = useRef(false)
   const previewStopRef = useRef(false)
   const previewRunIdRef = useRef(0)
@@ -496,6 +564,7 @@ export default function App() {
         setProviders(data.providers)
         setStyles(data.styles)
         setPaces(data.paces?.length ? data.paces : fallbackPaces)
+        setScriptAssist(data.scriptAssist)
         if (!data.providers.find((item) => item.id === provider)) {
           const firstReady = data.providers.find((item) => item.id === "dashscope") || data.providers.find((item) => item.status === "ready") || data.providers[0]
           if (firstReady) setProvider(firstReady.id)
@@ -515,6 +584,7 @@ export default function App() {
   const pace = paces.find((item) => item.id === pacePreset) || fallbackPaces[1]
   const calibratedSpeed = Math.max(0.5, Math.min(2, pace.speed * speedMultiplier))
   const accentOption = englishAccentOptions.find((item) => item.id === englishAccent) || englishAccentOptions[0]
+  const roleVoiceOptions = useMemo<VoicePreset[]>(() => compatibleVoices(providerConfig, modelId), [providerConfig, modelId])
   const selectedSegment = useMemo(() => segments.find((item) => item.uid === selectedUid) || null, [segments, selectedUid])
   const geminiOverrideText = (overrides?: Record<string, unknown>) => {
     const value = overrides?.geminiGroupText
@@ -555,19 +625,6 @@ export default function App() {
     return out
   }, [segments])
 
-  const previewMarkers = useMemo(() => {
-    const seen = new Set<string>()
-    return previewItems.flatMap((item, index) => {
-      const raw = item.groupId || item.label || ""
-      const range = raw.match(/q-(\d+)(?:-(\d+))?/) || item.label?.match(/第\s*(\d+)(?:\s*(?:至|到|-)\s*(\d+))?\s*题/)
-      const label = range ? range[1] : /^(?:Number|Test)\s+(?:\d+|[a-z]+(?:\s+[a-z]+)?)/i.test(item.label || "") ? (item.label || "").replace(/^(?:Number|Test)\s+/i, "") : ""
-      if (!label) return []
-      const key = label
-      if (seen.has(key)) return []
-      seen.add(key)
-      return [{ index, label }]
-    })
-  }, [previewItems])
 
   const totalPreviewMs = useMemo(() => previewItems.reduce((total, item) => total + estimatePreviewItemMs(item), 0), [previewItems])
   const previewElapsedMs = useMemo(() => {
@@ -576,7 +633,6 @@ export default function App() {
     const completed = previewItems.slice(0, index).reduce((total, item) => total + estimatePreviewItemMs(item), 0)
     return Math.min(totalPreviewMs, completed + estimatePreviewItemMs(previewItems[index]) * Math.max(0, Math.min(1, previewItemProgress)))
   }, [previewIndex, previewItemProgress, previewItems, totalPreviewMs])
-  const previewProgress = totalPreviewMs ? Math.min(100, Math.max(0, (previewElapsedMs / totalPreviewMs) * 100)) : 0
 
   useEffect(() => {
     if (!providerConfig) return
@@ -589,6 +645,10 @@ export default function App() {
     const prefObj = prefs && typeof prefs === "object" ? (prefs as Record<string, unknown>) : {}
     const candidateModel = typeof prefObj.modelId === "string" ? prefObj.modelId : ""
     const candidateVoice = typeof prefObj.voiceId === "string" ? prefObj.voiceId : ""
+    const candidateRoleVoices =
+      prefObj.roleVoiceIds && typeof prefObj.roleVoiceIds === "object"
+        ? (prefObj.roleVoiceIds as Partial<Record<VoiceRoleKey, unknown>>)
+        : {}
     const candidateBaseUrl = typeof prefObj.baseUrl === "string" ? prefObj.baseUrl : ""
     const candidateLanguage = typeof prefObj.languageType === "string" ? prefObj.languageType : ""
     const candidateVoiceGender =
@@ -598,8 +658,18 @@ export default function App() {
     const candidateGeminiMaleVoice = typeof prefObj.geminiMaleVoiceId === "string" ? prefObj.geminiMaleVoiceId : ""
     const candidateGeminiFemaleVoice = typeof prefObj.geminiFemaleVoiceId === "string" ? prefObj.geminiFemaleVoiceId : ""
 
-    setModelId(providerConfig.models.some((m) => m.id === candidateModel) ? candidateModel : providerConfig.defaultModelId)
-    setVoiceId(providerConfig.voices.some((v) => v.id === candidateVoice) ? candidateVoice : providerConfig.defaultVoiceId)
+    const selectedModel = providerConfig.models.some((m) => m.id === candidateModel) ? candidateModel : providerConfig.defaultModelId
+    const nextModel = providerConfig.id === "dashscope" && selectedModel === "qwen3-tts-flash" ? providerConfig.defaultModelId : selectedModel
+    const nextVoices = compatibleVoices(providerConfig, nextModel)
+    const roleDefaults = defaultRoleVoices(providerConfig, nextModel)
+    const nextRoleVoices = (Object.keys(roleDefaults) as VoiceRoleKey[]).reduce<Record<VoiceRoleKey, string>>((result, role) => {
+      const candidate = candidateRoleVoices[role]
+      result[role] = typeof candidate === "string" && nextVoices.some((voice) => voice.id === candidate) ? candidate : roleDefaults[role]
+      return result
+    }, { ...roleDefaults })
+    setModelId(nextModel)
+    setVoiceId(nextVoices.some((voice) => voice.id === candidateVoice) ? candidateVoice : nextVoices.find((voice) => voice.id === providerConfig.defaultVoiceId)?.id || nextVoices[0]?.id || "")
+    setRoleVoiceIds(nextRoleVoices)
     setBaseUrl(candidateBaseUrl || providerConfig.defaultBaseUrl || "")
     setLanguageType(providerConfig.id === "dashscope" ? (candidateLanguage || "English") : "")
     if (candidateVoiceGender) setVoiceGender(candidateVoiceGender)
@@ -650,6 +720,7 @@ export default function App() {
   }, [segments])
 
   useEffect(() => {
+    if (!providerConfig || !modelId) return
     safeSetItem(
       providerPrefsKey(provider),
       JSON.stringify({
@@ -658,11 +729,12 @@ export default function App() {
         baseUrl,
         languageType,
         voiceGender,
+        roleVoiceIds,
         geminiMaleVoiceId: provider === "google_gemini" ? geminiMaleVoiceId : "",
         geminiFemaleVoiceId: provider === "google_gemini" ? geminiFemaleVoiceId : ""
       })
     )
-  }, [provider, modelId, voiceId, baseUrl, languageType, voiceGender, geminiMaleVoiceId, geminiFemaleVoiceId])
+  }, [providerConfig, provider, modelId, voiceId, baseUrl, languageType, voiceGender, roleVoiceIds, geminiMaleVoiceId, geminiFemaleVoiceId])
 
   function setCredentials(next: Record<string, string>) {
     setCredentialsByProvider((prev) => ({ ...prev, [provider]: next }))
@@ -937,7 +1009,7 @@ export default function App() {
     master.disconnect()
   }
 
-  function stopPreview() {
+  const stopPreview = useCallback(() => {
     previewRunIdRef.current += 1
     previewStopRef.current = true
     setPreviewing(false)
@@ -950,7 +1022,14 @@ export default function App() {
     if (musicAudioContextRef.current?.state === "running") {
       void musicAudioContextRef.current.suspend()
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (workspaceView !== "studio") {
+      stopPreview()
+      document.querySelectorAll<HTMLAudioElement>(".workspace audio").forEach(audio => audio.pause())
+    }
+  }, [workspaceView, stopPreview])
 
   function seekPreview(index: number) {
     const nextIndex = Math.max(0, Math.min(Math.max(0, previewItems.length - 1), index))
@@ -982,8 +1061,53 @@ export default function App() {
     return `English accent standard: ${accentOption.label}. ${accentOption.instruction}`
   }
 
+  function applyRoleVoice(role: VoiceRoleKey, nextVoiceId: string) {
+    if (!roleVoiceOptions.some((voice) => voice.id === nextVoiceId)) return
+    setRoleVoiceIds((prev) => ({ ...prev, [role]: nextVoiceId }))
+    setSegments((prev) =>
+      prev.map((item) => {
+        if (item.type !== "tts" || voiceRuleForSegment(item) !== role) return item
+        return {
+          ...item,
+          voiceId: nextVoiceId,
+          audioId: undefined,
+          audioUrl: undefined,
+          generationMeta: undefined,
+          status: item.text.trim() ? ("idle" as const) : item.status,
+          error: item.audioId ? "统一朗读音色已更新，请重新生成该片段" : ""
+        }
+      })
+    )
+  }
+
+  function applyModelChange(nextModel: string) {
+    if (!providerConfig?.models.some((model) => model.id === nextModel)) return
+    const voices = compatibleVoices(providerConfig, nextModel)
+    const nextRoleVoices = defaultRoleVoices(providerConfig, nextModel)
+    setModelId(nextModel)
+    setRoleVoiceIds(nextRoleVoices)
+    setVoiceId((current) => voices.some((voice) => voice.id === current) ? current : voices.find((voice) => voice.id === providerConfig.defaultVoiceId)?.id || voices[0]?.id || "")
+    setSegments((prev) =>
+      prev.map((item) => {
+        if (item.type !== "tts") return item
+        const rule = voiceRuleForSegment(item)
+        const nextVoice = rule ? nextRoleVoices[rule] : voices.some((voice) => voice.id === item.voiceId) ? item.voiceId : voices[0]?.id || ""
+        return {
+          ...item,
+          modelId: nextModel,
+          voiceId: nextVoice,
+          audioId: undefined,
+          audioUrl: undefined,
+          generationMeta: undefined,
+          status: item.text.trim() ? ("idle" as const) : item.status,
+          error: item.audioId ? "生成模型已更新，请重新生成该片段" : ""
+        }
+      })
+    )
+  }
+
   function preferredVoiceForAccent(role?: string) {
-    const voices = providerConfig?.voices || []
+    const voices = roleVoiceOptions
     const preferredLocale = accentOption.locale
     if (preferredLocale === "en") return undefined
     const roleMatch = role === "question" ? "question" : role === "male" || role === "female" ? "dialogue" : "narrator"
@@ -1126,7 +1250,16 @@ export default function App() {
   }
 
   function voiceForRole(role?: string, text?: string) {
-    const voices = providerConfig?.voices || []
+    const voices = roleVoiceOptions
+    const globalRule =
+      role === "male" || role === "female"
+        ? roleVoiceIds[role]
+        : role === "question"
+          ? roleVoiceIds.question
+          : text && hasChineseText(text)
+            ? roleVoiceIds.narrator
+            : ""
+    if (globalRule && voices.some((voice) => voice.id === globalRule)) return globalRule
     if (text && hasChineseText(text)) {
       const roleMatch = role === "male" || role === "female" ? "dialogue" : "narrator"
       const byChineseRole = voices.find((voice) => voice.locale === "zh-CN" && voice.role === roleMatch)
@@ -1141,17 +1274,40 @@ export default function App() {
   }
 
   function voiceForSegmentRequest(seg: TtsSegment, text: string) {
-    const voices = providerConfig?.voices || []
+    const voices = roleVoiceOptions
+    const rule = voiceRuleForSegment({ ...seg, text })
+    if (rule) {
+      const selectedRuleVoice = roleVoiceIds[rule]
+      if (voices.some((voice) => voice.id === selectedRuleVoice)) return selectedRuleVoice
+    }
     const selected = voices.find((voice) => voice.id === seg.voiceId)
     if (hasChineseText(text) && selected?.locale && selected.locale !== "zh-CN") {
       return voiceForRole(seg.role, text) || seg.voiceId || voiceId
     }
-    return seg.voiceId || voiceForRole(seg.role, text) || voiceId
+    return selected?.id || voiceForRole(seg.role, text) || voices.find((voice) => voice.id === voiceId)?.id || voices[0]?.id || ""
+  }
+
+  function conversationContinuityNote(seg: TtsSegment, text: string) {
+    if (!seg.groupId) return ""
+    const turns = groupSegments(seg.groupId).filter((item) => !item.repeatOfUid && !isQuestionRole(item) && Boolean(item.text.trim()))
+    const index = turns.findIndex((item) => item.uid === seg.uid)
+    if (index < 0 || turns.length < 2) return ""
+    const role = seg.role === "female" ? "Female speaker W/B" : seg.role === "male" ? "Male speaker M/A" : "Narrator"
+    const voice = voiceForSegmentRequest(seg, text)
+    const excerpt = (value?: string) => (value || "").trim().replace(/\s+/g, " ").slice(0, 180)
+    const previous = turns[index - 1]
+    const next = turns[index + 1]
+    return [
+      `CONVERSATION CONTINUITY: This is turn ${index + 1} of ${turns.length} in one continuous dialogue.`,
+      `CHARACTER LOCK: ${role} always uses voice ${voice}. Preserve exactly the same speaker identity, age impression, accent, pace, energy, pitch range, and microphone distance in every turn.`,
+      previous ? `Previous turn for context only, do not speak it: ${excerpt(previous.text)}` : "",
+      next ? `Next turn for context only, do not speak it: ${excerpt(next.text)}` : "",
+      "Respond naturally to the meaning of the adjacent turn. Keep the emotion restrained and consistent with an English listening exam; do not restart with a fresh announcer tone."
+    ].filter(Boolean).join("\n")
   }
 
   async function requestSegmentTts(seg: TtsSegment, text = seg.text) {
-    const allowedModels = providerConfig?.models || []
-    const modelToUse = seg.modelId && allowedModels.some((m) => m.id === seg.modelId) ? seg.modelId : modelId
+    const modelToUse = modelId || providerConfig?.defaultModelId || seg.modelId
     const maxAttempts = provider === "dashscope" ? 3 : provider === "google_gemini" ? 2 : 1
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const res = await fetch("/api/tts", {
@@ -1167,7 +1323,7 @@ export default function App() {
           voice: voiceForSegmentRequest(seg, text),
           stylePresetId: seg.stylePresetId || stylePresetId,
           stylePrompt: seg.stylePrompt || stylePrompt,
-          directorNote: [accentDirectorNote(), languageRateDirective(text, template), seg.directorNote].filter(Boolean).join("\n"),
+          directorNote: [accentDirectorNote(), languageRateDirective(text, template), conversationContinuityNote(seg, text), seg.directorNote].filter(Boolean).join("\n"),
           speed: targetSpeedForText(text, template),
           pitch: seg.pitch || 1,
           volume: seg.volume || 1
@@ -1258,19 +1414,19 @@ export default function App() {
     }
   }
 
-  async function analyzeScript(text: string, mode: ApplyMode) {
+  async function analyzeScript(text: string, mode: ApplyMode, smart = false) {
     setAnalyzing(true)
     setComposeError("")
     try {
       const res = await fetch("/api/script/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, template })
+        body: JSON.stringify({ text, template, smart })
       })
       const rawText = await res.text()
       const json = (() => {
         try {
-          return JSON.parse(rawText) as { segments?: DirectorSegment[]; error?: string; detail?: string }
+          return JSON.parse(rawText) as { segments?: DirectorSegment[]; analysis?: ScriptAnalysisMeta; error?: string; detail?: string }
         } catch {
           return null
         }
@@ -1283,11 +1439,41 @@ export default function App() {
       const mapped = linkRepeatedAudioSegments(json.segments.map(normalizeDirectorSegment))
       setSegments((prev) => (mode === "replace" ? mapped : [...prev, ...mapped]))
       if (mapped[0]) setSelectedUid(mapped[0].uid)
+      const documentLabels: Record<NonNullable<ScriptAnalysisMeta["documentType"]>, string> = {
+        exam: "听力试卷",
+        podcast: "播客文字稿",
+        news: "新闻稿",
+        general: "普通文字稿"
+      }
+      const analysisMode = json.analysis?.mode === "ai" ? `${json.analysis.model || "DeepSeek"} 智能识别` : "本地规则识别"
+      const documentLabel = json.analysis?.documentType ? documentLabels[json.analysis.documentType] : "文字稿"
+      setAnalysisMessage(`${analysisMode} · ${documentLabel} · 已拆成 ${mapped.filter((item) => item.type === "tts").length} 个朗读片段${json.analysis?.warning ? ` · ${json.analysis.warning}` : ""}`)
+      setMobileInspectPanel("list")
+      return mapped
     } catch (err) {
       setComposeError(err instanceof Error ? `脚本导演分析失败：${err.message}` : "脚本导演分析失败")
+      return null
     } finally {
       setAnalyzing(false)
     }
+  }
+
+  async function createAudioFromScript(text: string, mode: ApplyMode, smart = false) {
+    if (!credentialsComplete(providerConfig, credentials)) {
+      setComposeError(`一键生成前需要先配置${providerConfig?.label || "当前语音服务商"}。`)
+      setAutoWorkflow("error")
+      setWorkspaceView("services")
+      return
+    }
+    setAutoWorkflow("analyzing")
+    setComposeError("")
+    setLastExportUrl("")
+    const mapped = await analyzeScript(text, mode, smart)
+    if (!mapped?.some((item) => item.type === "tts" && item.text.trim())) {
+      setAutoWorkflow("error")
+      return
+    }
+    setAutoWorkflow("ready")
   }
 
   function groupSegments(groupId: string) {
@@ -1345,8 +1531,8 @@ export default function App() {
 
     try {
       if (!credentialsComplete(providerConfig, credentials)) {
-        updateSegment(container.uid, { status: "error", error: "请先在设置中完整填写当前服务商密钥" })
-        setSettingsOpen(true)
+        updateSegment(container.uid, { status: "error", error: "请先在「声音服务」连接当前账号" })
+        setWorkspaceView("services")
         return false
       }
 
@@ -1495,8 +1681,8 @@ export default function App() {
 
     try {
       if (!containsPhonicsToken(container.text) && !credentialsComplete(providerConfig, credentials)) {
-        updateSegment(container.uid, { status: "error", error: "请先在设置中完整填写当前服务商密钥" })
-        setSettingsOpen(true)
+        updateSegment(container.uid, { status: "error", error: "请先在「声音服务」连接当前账号" })
+        setWorkspaceView("services")
         return false
       }
 
@@ -1535,7 +1721,7 @@ export default function App() {
     return generateUnifiedGroup(groupId)
   }
 
-  async function generateSegmentAudio(segUid: string) {
+  async function generateSegmentAudio(segUid: string, standalone = false) {
     const seg = segments.find((item) => item.uid === segUid)
     if ((!seg || seg.type !== "tts") && groupSegments(segUid).length) {
       return generateGroup(segUid)
@@ -1554,48 +1740,19 @@ export default function App() {
       updateSegment(segUid, { status: "error", error: "文本不能为空" })
       return false
     }
-    if (seg.groupId && shouldGenerateAsGroup(seg)) {
+    if (!standalone && seg.groupId && shouldGenerateAsGroup(seg)) {
       return generateGroup(seg.groupId)
     }
     if (!containsPhonicsToken(seg.text) && !credentialsComplete(providerConfig, credentials)) {
-      updateSegment(segUid, { status: "error", error: "请先在设置中完整填写当前服务商密钥" })
-      setSettingsOpen(true)
+      updateSegment(segUid, { status: "error", error: "请先在「声音服务」连接当前账号" })
+      setWorkspaceView("services")
       return false
     }
 
     updateSegment(segUid, { status: "generating", error: "" })
 
     try {
-      const allowedModels = providerConfig?.models || []
-      const modelToUse = seg.modelId && allowedModels.some((m) => m.id === seg.modelId) ? seg.modelId : modelId
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider,
-          credentials,
-          baseUrl,
-          model: modelToUse,
-          languageType: requestLanguageType(seg.text, provider, languageType, accentOption.locale),
-          text: seg.text,
-          voice: voiceForSegmentRequest(seg, seg.text),
-          stylePresetId: seg.stylePresetId || stylePresetId,
-          stylePrompt: seg.stylePrompt || stylePrompt,
-          directorNote: [accentDirectorNote(), languageRateDirective(seg.text, template), seg.directorNote].filter(Boolean).join("\n"),
-          speed: targetSpeedForText(seg.text, template),
-          pitch: seg.pitch || 1,
-          volume: seg.volume || 1
-        })
-      })
-      const rawText = await res.text()
-      const json = (() => {
-        try {
-          return JSON.parse(rawText) as TtsResult
-        } catch {
-          return { error: rawText }
-        }
-      })()
-      if (!res.ok) throw new Error(json.error || "生成失败")
+      const json = await requestSegmentTts(seg)
       setSegments((prev) =>
         prev.map((item) =>
           item.type === "tts" && (item.uid === segUid || item.repeatOfUid === segUid)
@@ -1610,10 +1767,11 @@ export default function App() {
     }
   }
 
-  async function runQueue(queue: string[]) {
+  async function runQueue(queue: string[], options?: { autoCompose?: boolean }) {
     if (bulkRunning) return
     if (!queue.length) {
       setBulkProgressText("没有需要生成的片段")
+      if (options?.autoCompose) setAutoWorkflow("error")
       return
     }
     const needsCloudTts = segments.some((item) => {
@@ -1622,8 +1780,9 @@ export default function App() {
     })
     if (needsCloudTts && !credentialsComplete(providerConfig, credentials)) {
       setBulkProgressText("")
-      setComposeError(`生成前检查：${providerConfig?.label || "当前服务商"}尚未配置。请在设置中填写临时密钥，或请管理员在服务器配置密钥。`)
-      setSettingsOpen(true)
+      setComposeError(`生成前检查：${providerConfig?.label || "当前服务商"}尚未配置。请在「声音服务」连接账号。`)
+      if (options?.autoCompose) setAutoWorkflow("error")
+      setWorkspaceView("services")
       return
     }
     stopRef.current = false
@@ -1653,15 +1812,22 @@ export default function App() {
     }
     setBulkRunning(false)
     setBulkProgressText(`${done}/${queue.length}${failed ? ` · 失败 ${failed}` : " · 完成"}`)
+    if (options?.autoCompose) {
+      setAutoWorkflow(failed || stopRef.current ? "error" : "compose-pending")
+    }
   }
 
-  function generateAll() {
+  function generationQueue(input = segments) {
     const queue = new Set<string>()
-    for (const item of segments) {
+    for (const item of input) {
       if (!isTtsSegment(item) || item.audioId || item.repeatOfUid || !item.text.trim()) continue
       queue.add(shouldGenerateAsGroup(item) ? item.groupId as string : item.uid)
     }
-    void runQueue([...queue])
+    return [...queue]
+  }
+
+  function generateAll(options?: { autoCompose?: boolean }) {
+    void runQueue(generationQueue(), options)
   }
 
   function retryFailed() {
@@ -1717,7 +1883,7 @@ export default function App() {
   async function generateSpeedSample(_multiplier: number, sampleText: string) {
     if (!credentialsComplete(providerConfig, credentials)) {
       setSpeedSampleState("error")
-      setSpeedSampleError("请先在设置中完整填写当前服务商密钥")
+      setSpeedSampleError("请先在「声音服务」连接当前账号")
       return
     }
     setSpeedSampleState("generating")
@@ -1853,7 +2019,9 @@ export default function App() {
     link.remove()
   }
 
-  async function composeAndDownload() {
+  async function composeAndDownload(options?: { auto?: boolean }) {
+    if (options?.auto) setAutoWorkflow("composing")
+    let completed = false
     setComposeRunning(true)
     setComposeError("")
     try {
@@ -1893,14 +2061,15 @@ export default function App() {
       })
       const json = (await res.json()) as { url?: string; error?: string }
       if (!res.ok) throw new Error(json.error || "合成失败")
-      if (json.url) {
-        setLastExportUrl(json.url)
-        downloadExport(json.url, exportFormat)
-      }
+      if (!json.url) throw new Error("合成成功，但没有返回下载地址")
+      setLastExportUrl(json.url)
+      downloadExport(json.url, exportFormat)
+      completed = true
     } catch (err) {
       setComposeError(err instanceof Error ? err.message : "合成失败")
     } finally {
       setComposeRunning(false)
+      if (options?.auto) setAutoWorkflow(completed ? "done" : "error")
     }
   }
 
@@ -1940,36 +2109,80 @@ export default function App() {
     return !segments.some((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId))
   })
 
+  useEffect(() => {
+    if (autoWorkflow !== "ready") return
+    const queue = generationQueue()
+    if (!queue.length) {
+      setComposeError("智能拆分完成，但没有找到可生成的朗读内容。请使用手工检查功能调整片段。")
+      setAutoWorkflow("error")
+      return
+    }
+    setAutoWorkflow("generating")
+    void runQueue(queue, { autoCompose: true })
+    // generationQueue/runQueue intentionally use the latest rendered segment snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoWorkflow, segments])
+
+  useEffect(() => {
+    if (autoWorkflow !== "compose-pending" || !canCompose) return
+    void composeAndDownload({ auto: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoWorkflow, canCompose])
+
   return (
-    <div className="appRoot">
+    <div className={`appRoot studioShell view-${workspaceView}`}>
+      <aside className="studioSidebar">
+        <a className="studioLogo" href="/" aria-label="听见工作台首页"><span className="logoWave" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>听见<span className="logoEnglish">LISTEN STUDIO</span></span></a>
+        <div className="sidebarSectionLabel">音频制作</div>
+        <nav className="studioNav" aria-label="工作区导航">
+          <button className={workspaceView === "script" ? "active" : ""} onClick={() => setWorkspaceView("script")}><span>01</span>准备文稿</button>
+          <button className={workspaceView === "studio" ? "active" : ""} onClick={() => setWorkspaceView("studio")}><span>02</span>配音与试听{stats.tts ? <em>{stats.tts}</em> : null}</button>
+          <button className={workspaceView === "export" ? "active" : ""} onClick={() => setWorkspaceView("export")}><span>03</span>导出成品</button>
+        </nav>
+        <nav className="studioNav" aria-label="设置导航"><button className={workspaceView === "services" ? "active" : ""} onClick={() => setWorkspaceView("services")}><span>♫</span>声音服务<span className="navDot" /></button><button className={workspaceView === "settings" ? "active" : ""} onClick={() => setWorkspaceView("settings")}><span>⚙</span>制作设置</button></nav>
+        <div className="sidebarBottom"><div className="sidebarAccount"><span>N</span><div>Newsun English<small>教师音频工作台</small></div></div></div>
+      </aside>
       <TopBar
+        workspaceView={workspaceView}
         provider={providerConfig}
         bulkRunning={bulkRunning}
         bulkProgressText={bulkProgressText}
         onGenerateAll={generateAll}
         onRetryFailed={retryFailed}
         onStopGenerateAll={stopGenerateAll}
-        canCompose={canCompose}
-        composeRunning={composeRunning}
-        onCompose={composeAndDownload}
-        lastExportUrl={lastExportUrl}
-        onDownloadLast={() => lastExportUrl ? downloadExport(lastExportUrl, exportFormat) : undefined}
-        exportFormat={exportFormat}
-        onExportFormatChange={setExportFormat}
-        onOpenSettings={() => setSettingsOpen(true)}
         hasPendingGeneration={hasPendingGeneration}
         stats={stats}
       />
 
-      <main className="workspace" style={{ "--paste-pane-width": `${pastePaneWidth}px`, "--segment-pane-width": `${segmentPaneWidth}px` } as CSSProperties}>
+      {workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} /></div> : <div className="studioPageHeading"><div><h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "配音与试听" : workspaceView === "settings" ? "制作设置" : "导出成品"}</h1></div>{workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" onClick={() => setWorkspaceView("services")}><span className="voiceCardIcon">♫</span><span><small>当前声音服务</small><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置 · 点击测试或更换" : "尚未连接 · 点此开通"}</em></span><span>↗</span></button> : null}</div>}
+
+      {workspaceView === "script" && providerConfig && !providerConfig.serverConfigured && !credentialsComplete(providerConfig, credentials) ? <div className="setupBanner"><span>连接声音服务后即可生成音频。</span><button onClick={() => setWorkspaceView("services")}>选择声音服务 →</button></div> : null}
+
+      {workspaceView === "export" ? <section className="exportPage">
+        <div className="exportContent">
+          <div className="exportStatus"><span aria-hidden="true">{canCompose ? "✓" : "◷"}</span><div><h2>{canCompose ? "音频已就绪" : "还有片段待完成"}</h2><p>{stats.tts ? `已生成 ${stats.generated} / ${stats.tts} 段 · 预计 ${stats.totalTime}` : "先添加文稿并生成语音。"}</p></div></div>
+          <label className="field"><span className="label">文件格式</span><select value={exportFormat} onChange={e => setExportFormat(e.target.value === "wav" ? "wav" : "mp3")}><option value="mp3">MP3 · 日常播放</option><option value="wav">WAV · 后期编辑</option></select></label>
+          <button className="btnPrimary exportMainButton" disabled={!canCompose || composeRunning} onClick={() => void composeAndDownload()}>{composeRunning ? "正在合成…" : "合成并下载 ↓"}</button>
+          {!canCompose ? <button className="textButton exportReturn" onClick={() => setWorkspaceView(stats.tts ? "studio" : "script")}>{stats.tts ? `继续完成剩余 ${Math.max(0, stats.tts - stats.generated)} 段 →` : "准备文稿 →"}</button> : null}
+          {lastExportUrl ? <div className="exportLast"><span>上次成品</span><audio controls preload="none" src={lastExportUrl} /><button className="textButton" onClick={() => downloadExport(lastExportUrl)}>再次下载 ↓</button></div> : null}
+          {composeError ? <div className="inlineError" role="alert">{composeError}</div> : null}
+        </div>
+      </section> : null}
+
+      <main className="workspace" aria-label="文稿与配音工作区" style={{ "--paste-pane-width": `${pastePaneWidth}px`, "--segment-pane-width": `${segmentPaneWidth}px` } as CSSProperties}>
         <div className="pastePane">
           <BulkPaste
             analyzing={analyzing}
+            workflowStage={autoWorkflow}
+            hasSegments={segments.length > 0}
+            scriptAssist={scriptAssist}
+            analysisMessage={analysisMessage}
             majorBreakMs={template.majorBreakMs}
             minorBreakMs={template.minorBreakMs}
             questionNumberGapMs={template.questionNumberGapMs}
             questionNumberStyle={template.questionNumberStyle}
-            onAnalyze={analyzeScript}
+            onAnalyze={(text, mode, smart) => { void analyzeScript(text, mode, smart).then(() => setWorkspaceView("studio")) }}
+            onCreateAudio={createAudioFromScript}
             onApply={(parsed, mode) => {
             const mapped: Segment[] = linkRepeatedAudioSegments(parsed.map((item) => {
               const itemGroupId = "groupId" in item ? item.groupId : undefined
@@ -1989,7 +2202,7 @@ export default function App() {
                     ? ({ role: "female" as const, label: speakerTag || item.label || "W" })
                     : isQuestionMarker
                       ? ({ role: "question" as const, label: item.label || item.text.trim() })
-                    : speakerTag === "NARRATOR" && hasChineseText(item.text)
+                    : speakerTag === "NARRATOR" && hasChineseText(item.text) && /(?:听力测试|考试).{0,12}(?:现在开始|即将开始)/.test(item.text)
                       ? ({ role: "intro" as const, label: item.label || "旁白" })
                     : speakerTag === "NARRATOR"
                       ? ({ role: "narrator" as const, label: item.label || "旁白" })
@@ -2016,6 +2229,9 @@ export default function App() {
             }))
             setSegments((prev) => (mode === "replace" ? mapped : [...prev, ...mapped]))
             if (mapped[0]) setSelectedUid(mapped[0].uid)
+            setAnalysisMessage(`本地简单拆分 · 已拆成 ${mapped.filter((item) => item.type === "tts").length} 个朗读片段`)
+            setWorkspaceView("studio")
+            setMobileInspectPanel("list")
             }}
           />
           <button
@@ -2026,17 +2242,32 @@ export default function App() {
           />
         </div>
 
-        <div className="segmentPane">
+        <div className="mobileInspectTabs" aria-label="竖屏检查面板">
+          <button className={mobileInspectPanel === "list" ? "mobileInspectTab mobileInspectTabActive" : "mobileInspectTab"} type="button" onClick={() => setMobileInspectPanel("list")}>
+            片段列表
+          </button>
+          <button className={mobileInspectPanel === "editor" ? "mobileInspectTab mobileInspectTabActive" : "mobileInspectTab"} type="button" onClick={() => setMobileInspectPanel("editor")} disabled={!selectedSegment}>
+            编辑片段
+          </button>
+        </div>
+
+        <div className={`segmentPane mobileInspectPanel ${mobileInspectPanel === "list" ? "mobileInspectActive" : ""}`}>
           <SegmentList
             provider={provider}
             segments={segments}
             selectedUid={selectedUid}
-            onSelect={setSelectedUid}
+            onSelect={(nextUid) => {
+              setSelectedUid(nextUid)
+              setMobileInspectPanel("editor")
+            }}
             onReorder={reorder}
             onAddTts={addTts}
             onAddSilence={addSilence}
             onAddMusic={addMusic}
             onClearAll={clearAllSegments}
+            voiceOptions={roleVoiceOptions}
+            roleVoiceIds={roleVoiceIds}
+            onRoleVoiceChange={applyRoleVoice}
           />
           <button
             className="resizeHandle segmentResizeHandle"
@@ -2046,10 +2277,10 @@ export default function App() {
           />
         </div>
 
-        <div className="editorStack">
+        <div className={`editorStack mobileInspectPanel ${mobileInspectPanel === "editor" ? "mobileInspectActive" : ""}`}>
           <SegmentEditor
             provider={provider}
-            voiceOptions={providerConfig?.voices || []}
+            voiceOptions={roleVoiceOptions}
             voiceGender={voiceGender}
             globalVoiceId={voiceId}
             stylePresetId={stylePresetId}
@@ -2061,6 +2292,7 @@ export default function App() {
             onUpdate={updateSegment}
             onDelete={deleteSegment}
             onGenerate={generateSegmentAudio}
+            onGenerateSingle={(uid) => void generateSegmentAudio(uid, true)}
             onClearAudio={clearAudio}
             repeatControl={{ canUse: canRepeatSelectedGroup(selectedSegment), enabled: selectedSegment?.type === "tts" ? repeatEnabledForGroup(selectedSegment.groupId) : false }}
             onToggleRepeat={toggleRepeatForSegment}
@@ -2070,82 +2302,22 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="transportBar" aria-label="project transport">
-        <div className="transportControls">
-          <button className="transportIconButton" type="button" onClick={() => void startPreview(previewIndex)} disabled={previewing || !previewItems.length} aria-label="播放" title="播放">
-            <span className="playGlyph" aria-hidden="true" />
-          </button>
-          <button className="transportIconButton" type="button" onClick={stopPreview} disabled={!previewing} aria-label="停止" title="停止">
-            <span className="stopGlyph" aria-hidden="true" />
-          </button>
-          <div className="transportStats" aria-label="项目状态">
-            <div>
-              <strong>{stats.total}</strong>
-              <span>片段</span>
-            </div>
-            <div>
-              <strong>{stats.silence}</strong>
-              <span>个停顿</span>
-            </div>
-            <div>
-              <strong>{stats.generated}/{stats.tts}</strong>
-              <span>已生成</span>
-            </div>
-            {stats.errors ? (
-              <div className="transportStatError">
-                <strong>{stats.errors}</strong>
-                <span>错误</span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <div className="transportProgress">
-          <div className="transportMarkerLayer">
-            {previewMarkers.map((marker) => (
-              <button
-                className="transportMarker"
-                key={`${marker.index}-${marker.label}`}
-                type="button"
-                style={{ left: `${previewItems.length <= 1 ? 0 : (marker.index / (previewItems.length - 1)) * 100}%` }}
-                onClick={() => seekPreview(marker.index)}
-                tabIndex={-1}
-              >
-                {marker.label}
-              </button>
-            ))}
-          </div>
-          <div className="transportTrack">
-            <div className="transportFill" style={{ width: `${previewProgress}%` }} />
-          </div>
-          <div className="transportProgressTime">
-            <span>{previewError ? previewError : previewing ? `播放 ${previewIndex + 1}/${previewItems.length}` : "预览进度"}</span>
-            <strong>{formatTime(previewElapsedMs / 1000)} / {stats.totalTime}</strong>
-          </div>
-          <input
-            className="transportSeek"
-            type="range"
-            min={0}
-            max={Math.max(0, previewItems.length - 1)}
-            step={1}
-            value={Math.min(previewIndex, Math.max(0, previewItems.length - 1))}
-            onChange={(event) => seekPreview(Number(event.target.value))}
-            disabled={!previewItems.length}
-            aria-label="预览播放进度"
-          />
-        </div>
-      </footer>
+      {workspaceView === "studio" ? <div className="studioPreview" aria-label="全篇试听">
+        <span className="studioPreviewLabel">全篇试听</span>
+        <button className="studioPreviewButton" type="button" onClick={() => previewing ? stopPreview() : void startPreview(previewIndex)} disabled={!previewItems.length} aria-label={previewing ? "停止全篇试听" : "播放全篇试听"}>{previewing ? "■ 停止" : "▷ 播放"}</button>
+        <input type="range" min={0} max={Math.max(0, previewItems.length - 1)} step={1} value={Math.min(previewIndex, Math.max(0, previewItems.length - 1))} onChange={event => seekPreview(Number(event.target.value))} disabled={!previewItems.length} aria-label="全篇试听进度" />
+        <span className="studioPreviewTime">{formatTime(previewElapsedMs / 1000)} / {stats.totalTime}</span>
+        {previewError ? <span className="inlineError" role="status">{previewError}</span> : null}
+      </div> : null}
 
       <audio ref={audioRef} style={{ display: "none" }} />
 
-      <SettingsDrawer
-        open={settingsOpen}
+      {workspaceView === "settings" ? <SettingsPage
         providers={providers}
         provider={provider}
-        onProviderChange={setProvider}
-        credentials={credentials}
-        onCredentialsChange={setCredentials}
+        onOpenServices={() => setWorkspaceView("services")}
         modelId={modelId}
-        onModelIdChange={setModelId}
+        onModelIdChange={applyModelChange}
         voiceId={voiceId}
         onVoiceIdChange={setVoiceId}
         geminiMaleVoiceId={safeGeminiDialogueVoice("male", geminiMaleVoiceId)}
@@ -2180,8 +2352,7 @@ export default function App() {
         onApplyTargetSpeakingRates={applyTargetSpeakingRates}
         stylePrompt={stylePrompt}
         onStylePromptChange={setStylePrompt}
-        onClose={() => setSettingsOpen(false)}
-      />
+      /> : null}
     </div>
   )
 }

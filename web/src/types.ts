@@ -1,6 +1,7 @@
-export type ProviderId = "openai" | "dashscope" | "minimax" | "google" | "google_gemini" | "volcengine" | "xfyun" | "tencent" | "baidu" | "huawei"
+export type ProviderId = "openai" | "dashscope" | "minimax" | "google" | "google_gemini" | "volcengine" | "doubao" | "siliconflow" | "xfyun" | "tencent" | "baidu" | "huawei"
 
 export type VoiceGender = "male" | "female" | "neutral"
+export type VoiceRoleKey = "narrator" | "question" | "male" | "female"
 
 export type CredentialField = {
   key: string
@@ -26,6 +27,7 @@ export type VoicePreset = {
   gender: VoiceGender
   locale?: string
   role?: "narrator" | "dialogue" | "question" | "general"
+  modelIds?: string[]
 }
 
 export type ProviderConfig = {
@@ -54,6 +56,19 @@ export type ProvidersResponse = {
   providers: ProviderConfig[]
   styles: Array<{ id: string; label: string }>
   paces: PacePreset[]
+  scriptAssist?: {
+    available: boolean
+    model: string
+    label: string
+  }
+}
+
+export type ScriptAnalysisMeta = {
+  mode: "ai" | "local"
+  model?: string
+  documentType?: "exam" | "podcast" | "news" | "general"
+  summary?: string
+  warning?: string
 }
 
 export type ProviderCatalogResponse = {

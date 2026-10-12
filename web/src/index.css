@@ -1,37 +1,39 @@
 :root {
-  --bg: #f5f8fb;
-  --bg-strong: #e8eef6;
-  --panel: rgba(255, 255, 255, 0.82);
-  --panel-solid: #ffffff;
-  --ink: #0b1220;
-  --text: #1d2939;
-  --muted: #7a8699;
-  --muted-strong: #536071;
-  --border: rgba(93, 110, 135, 0.16);
-  --border-strong: rgba(70, 88, 114, 0.26);
-  --teal: #0f7f7a;
-  --teal-soft: rgba(15, 127, 122, 0.10);
-  --blue: #2563eb;
-  --blue-soft: rgba(37, 99, 235, 0.10);
-  --amber: #d97706;
-  --amber-soft: rgba(217, 119, 6, 0.12);
+  --bg: #f4f1e9;
+  --bg-strong: #ebe5d9;
+  --panel: rgba(255, 253, 248, 0.94);
+  --panel-solid: #fffdf8;
+  --ink: #17233b;
+  --text: #28354a;
+  --muted: #7d8490;
+  --muted-strong: #596273;
+  --border: rgba(50, 62, 82, 0.14);
+  --border-strong: rgba(50, 62, 82, 0.24);
+  --teal: #237568;
+  --teal-soft: rgba(35, 117, 104, 0.10);
+  --blue: #285ca8;
+  --blue-soft: rgba(40, 92, 168, 0.10);
+  --amber: #b7771d;
+  --amber-soft: rgba(183, 119, 29, 0.12);
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.10);
   --success: #059669;
   --success-soft: rgba(5, 150, 105, 0.10);
-  --focus: rgba(37, 99, 235, 0.24);
-  --shadow: 0 22px 70px rgba(15, 23, 42, 0.09);
-  --shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.07);
-  --sans: Inter, "SF Pro Display", "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
-  --display: Inter, "SF Pro Display", "Avenir Next", "Segoe UI", sans-serif;
+  --focus: rgba(40, 92, 168, 0.24);
+  --shadow: 0 22px 70px rgba(42, 49, 61, 0.10);
+  --shadow-soft: 0 10px 28px rgba(42, 49, 61, 0.07);
+  --sans: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --display: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
 
   font: 16px/150% var(--sans);
   letter-spacing: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at 18% 14%, rgba(37, 99, 235, 0.11), transparent 28%),
-    radial-gradient(circle at 82% 8%, rgba(15, 127, 122, 0.12), transparent 30%),
-    linear-gradient(135deg, #f8fbff 0%, #eef4fb 46%, #f9fbfd 100%);
+    linear-gradient(rgba(40, 92, 168, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(40, 92, 168, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 84% 4%, rgba(35, 117, 104, 0.11), transparent 26%),
+    linear-gradient(145deg, #faf8f2 0%, #f1ede4 100%);
+  background-size: 24px 24px, 24px 24px, auto, auto;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

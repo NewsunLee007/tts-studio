@@ -1,0 +1,12 @@
+.git
+.vercel
+.wrangler
+node_modules
+**/node_modules
+**/dist
+**/data
+output
+.env*
+.dev.vars*
+*.pem
+*.key

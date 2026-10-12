@@ -7,34 +7,20 @@ type InputMode = ParseMode | "exam"
 
 type Props = {
   onApply: (segments: Array<ParsedSegment | ExamDraftSegment>, mode: ApplyMode) => void
-  onAnalyze: (text: string, mode: ApplyMode) => void
+  onAnalyze: (text: string, mode: ApplyMode, smart: boolean) => void
+  onCreateAudio: (text: string, mode: ApplyMode, smart: boolean) => void
   analyzing: boolean
+  workflowStage: "idle" | "analyzing" | "ready" | "generating" | "compose-pending" | "composing" | "done" | "error"
+  hasSegments: boolean
+  scriptAssist?: { available: boolean; model: string; label: string }
+  analysisMessage?: string
   majorBreakMs: number
   minorBreakMs: number
   questionNumberGapMs: number
   questionNumberStyle: "number" | "test"
 }
 
-const examPlaceholder = `请把完整的英语听力文稿粘贴到这里。系统会识别题号、旁白、男女角色和“读两遍”等要求，不会擅自加入学校、学年、考试名称或开场音乐。
-
-示例：
-第一节：听下面5段小对话，每段对话后有一个小题。每段对话仅读一遍。
-1. M: Hi, Mary. How do you usually go to school?
-W: I usually ride my bike, but today I took the bus because of the rain.
-A. By bike.
-B. By bus.
-C. On foot.
----
-第二节：听下面一段较长对话，回答第6至第7两个小题。对话读两遍。
-M: Good morning. Can I help you?
-W: Yes, please. I want to buy a sweater for my son.
-M: What color does he like?
-W: Blue. How much is this one?
-M: It is fifty yuan.
----
-第三节：听独白，从A、B、C三个选项中选出正确选项。独白读两遍。
-Hello, welcome to our school radio station. Today we are going to meet a new friend, Fiona.
-听力测试到此结束。`
+const examPlaceholder = `粘贴完整文稿，或点击「示例文稿」开始。\n\nM: Good morning. How are you?\nW: Fine, thank you.`
 
 export function BulkPaste(props: Props) {
   const [text, setText] = useState("")
@@ -46,35 +32,69 @@ export function BulkPaste(props: Props) {
     if (mode === "exam") return parseExamScript(text, { majorBreakMs: props.majorBreakMs, minorBreakMs: props.minorBreakMs, questionNumberGapMs: props.questionNumberGapMs, questionNumberStyle: props.questionNumberStyle })
     return parseSegments(text, mode)
   }, [text, mode, props.majorBreakMs, props.minorBreakMs, props.questionNumberGapMs, props.questionNumberStyle])
+  const workflowRunning = ["analyzing", "ready", "generating", "compose-pending", "composing"].includes(props.workflowStage)
+  const workflowLabel: Record<Props["workflowStage"], string> = {
+    idle: "一键生成完整音频",
+    analyzing: "正在智能识别文稿…",
+    ready: "拆分完成，准备生成…",
+    generating: "正在逐段生成语音…",
+    "compose-pending": "语音完成，准备合成…",
+    composing: "正在合成并下载…",
+    done: "已生成，可再次制作",
+    error: "重试一键生成"
+  }
 
   return (
-    <section className="rightCard">
-      <div className="cardHeadRow">
-        <div className="cardHead">
-          <h2 className="cardTitle">第 1 步｜粘贴听力文稿</h2>
-          <div className="cardSub">不会自动加入考试信息或开场音乐；题号和必要停顿会按原文结构生成。</div>
+    <section className={`rightCard bulkPasteCard ${props.hasSegments ? "bulkPasteHasSegments" : ""}`}>
+      <div className="bulkHero">
+        <div>
+          <span className="bulkEyebrow">01 / YOUR SCRIPT</span>
+          <h2 className="bulkTitle">放入你的文稿</h2>
+          <div className="cardSub">直接粘贴完整内容，题号、对话与停顿交给工作台。</div>
         </div>
-        <div className="cardActionsInline bulkActions">
-          <button className="btnPrimary" type="button" onClick={() => props.onAnalyze(text, applyMode)} disabled={!text.trim() || props.analyzing}>
-            {props.analyzing ? "正在拆分…" : "拆分文稿"}
-          </button>
-          <button className="btnGhost" type="button" onClick={() => setText("")} disabled={!text.trim()}>
-            清空
-          </button>
-        </div>
+        <span className="bulkAiState">{props.scriptAssist?.available ? "DeepSeek 智能识别" : "本地规则识别"}</span>
       </div>
 
+
+      <div className="scriptTools"><span>文稿编辑器</span><button type="button" className="textButton" disabled={workflowRunning} onClick={() => setText("第一节：听下面一段对话，对话读两遍。\n1. M: Hi, Emma. What are you going to do this weekend?\nW: I'm going to the library. Would you like to come with me?\nM: Sure. What time shall we meet?\nW: Let's meet at nine outside the school gate.\n听力测试到此结束。")}>示例文稿 ↗</button></div>
       <textarea
         ref={textareaRef}
         className="pasteArea"
+        aria-label="完整文稿"
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={examPlaceholder}
         rows={10}
       />
+      <div className="scriptWordCount">{text.length.toLocaleString()} 字符</div>
+
+      <div className="bulkPrimaryActions">
+        <button
+          className="btnPrimary bulkCreateButton"
+          type="button"
+          onClick={() => props.onCreateAudio(text, applyMode, Boolean(props.scriptAssist?.available))}
+          disabled={!text.trim() || workflowRunning}
+        >
+          <span aria-hidden="true">▶</span>
+          <span>{workflowLabel[props.workflowStage]}</span>
+        </button>
+        <button
+          className="btn bulkReviewButton"
+          type="button"
+          onClick={() => props.onAnalyze(text, applyMode, Boolean(props.scriptAssist?.available))}
+          disabled={!text.trim() || props.analyzing || workflowRunning}
+        >
+          拆分并检查 →
+        </button>
+        <button className="btnGhost bulkClearButton" type="button" onClick={() => setText("")} disabled={!text.trim() || workflowRunning}>
+          清空
+        </button>
+      </div>
+
+      {props.analysisMessage ? <div className="analysisMessage">{props.analysisMessage}</div> : null}
 
       <details className="bulkAdvanced">
-        <summary>更多拆分选项</summary>
+        <summary>拆分选项</summary>
         <div className="cardActionsInline advancedActions">
           {mode === "exam" ? (
             <button
@@ -102,8 +122,13 @@ export function BulkPaste(props: Props) {
               插入分块线
             </button>
           ) : null}
-          <button className="btn" type="button" onClick={() => props.onApply(parsed, applyMode)} disabled={!parsed.length}>
-            简单拆分
+          <button
+            className="btn"
+            type="button"
+            onClick={() => mode === "exam" ? props.onAnalyze(text, applyMode, false) : props.onApply(parsed, applyMode)}
+            disabled={!parsed.length || props.analyzing}
+          >
+            {mode === "exam" ? "本地快速拆分" : "简单拆分"}
           </button>
         </div>
 

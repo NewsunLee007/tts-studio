@@ -36,7 +36,6 @@ export type AnalyzedSegment =
   | { type: "music"; presetId: "warmup" | "bell" | "soft" | "piano" | "ding"; durationMs: number; label?: string; groupId?: string }
 
 type SpeakerTag = "M" | "W" | "A" | "B" | "NARRATOR"
-type DialogueSpeakerTag = Exclude<SpeakerTag, "NARRATOR">
 
 type DraftSegment =
   | { type: "tts"; speakerTag: SpeakerTag; text: string; label?: string; groupId?: string; directorNote?: string }
@@ -45,7 +44,7 @@ type DraftSegment =
 
 type SpeakerLine = {
   number?: number
-  speakerTag: DialogueSpeakerTag
+  speakerTag: SpeakerTag
   text: string
 }
 
@@ -55,6 +54,7 @@ type SectionPlan = {
   qStart?: number
   qEnd?: number
   repeatCount: 1 | 2
+  preReadFixedMs: number
   preReadMsPerQuestion: number
   answerMsPerQuestion: number
   perItemAnswerMs: number
@@ -81,6 +81,7 @@ const defaultPlan: SectionPlan = {
   id: "exam",
   label: "听力材料",
   repeatCount: 1,
+  preReadFixedMs: 0,
   preReadMsPerQuestion: 0,
   answerMsPerQuestion: 0,
   perItemAnswerMs: 0,
@@ -145,10 +146,17 @@ function questionCount(start?: number, end?: number) {
 }
 
 function parseSpeakerLine(line: string): SpeakerLine | null {
-  const m = line.match(/^\s*(?:(\d+)[.、)]\s*)?(M|W|A|B|Man|Woman|男|女|男士|女士)\s*[:：]\s*(.+)\s*$/i)
+  const m = line.match(/^\s*(?:(\d+)[.、)]\s*)?(M|W|A|B|N|Narrator|Host|Guest|Man|Woman|男|女|男士|女士|旁白|主持人|嘉宾)\s*[:：]\s*(.+)\s*$/i)
   if (!m) return null
   const rawTag = m[2].trim().toLowerCase()
-  const speakerTag: DialogueSpeakerTag = rawTag === "w" || rawTag === "b" || rawTag === "woman" || rawTag.startsWith("女") ? "W" : rawTag === "a" ? "A" : "M"
+  const speakerTag: SpeakerTag =
+    rawTag === "w" || rawTag === "b" || rawTag === "woman" || rawTag.startsWith("女")
+      ? "W"
+      : rawTag === "n" || rawTag === "narrator" || rawTag === "host" || rawTag === "guest" || rawTag === "旁白" || rawTag === "主持人" || rawTag === "嘉宾"
+        ? "NARRATOR"
+        : rawTag === "a"
+          ? "A"
+          : "M"
   return {
     number: m[1] ? Number(m[1]) : undefined,
     speakerTag,
@@ -242,7 +250,7 @@ function parseQuestionRange(line: string) {
     if (start) return { start, end: start }
   }
 
-  const dash = line.match(/\b(\d+)\s*[-－—]\s*(\d+)\b/)
+  const dash = line.match(/\b(\d+)\s*[-－—~～]\s*(\d+)\b/)
   if (dash) return { start: Number(dash[1]), end: Number(dash[2]) }
 
   const single = line.match(/第\s*([0-9一二两三四五六七八九十]+)\s*(?:个小题|题)/)
@@ -255,6 +263,13 @@ function parseQuestionRange(line: string) {
   if (pair) {
     const start = cnToNumber(pair[1])
     const end = cnToNumber(pair[2])
+    if (start && end) return { start: Math.min(start, end), end: Math.max(start, end) }
+  }
+
+  const answerRange = line.match(/回答\s*(?:第\s*)?([0-9一二两三四五六七八九十]+)\s*(?:至|到|-|－|—|~|～)\s*(?:第\s*)?([0-9一二两三四五六七八九十]+)/)
+  if (answerRange) {
+    const start = cnToNumber(answerRange[1])
+    const end = cnToNumber(answerRange[2])
     if (start && end) return { start: Math.min(start, end), end: Math.max(start, end) }
   }
 
@@ -278,9 +293,11 @@ function detectTiming(line: string, mode: SectionPlan["mode"]) {
   const everyQuestion = line.match(/每小题\s*([0-9]+)\s*秒/)
   const hasQuestionReadTime = /阅读各小题|读题/.test(line)
   const hasAnswerTime = /作答时间|回答有关小题|回答时间/.test(line)
+  const fixedRead = line.match(/(?:有|将有|给你|给出)\s*([0-9]+)\s*秒(?:钟)?(?:的时间)?(?:来)?阅读/)
   const fixedAnswer = line.match(/(?:都有|有)\s*([0-9]+)\s*秒(?:钟)?(?:的时间)?(?:来)?(?:回答|作答|阅读下一小题)?/)
 
   return {
+    preReadFixedMs: fixedRead ? Number(fixedRead[1]) * 1000 : 0,
     preReadMsPerQuestion: everyQuestion && hasQuestionReadTime ? Number(everyQuestion[1]) * 1000 : mode === "monologue" ? 5000 : 0,
     answerMsPerQuestion: everyQuestion && hasAnswerTime ? Number(everyQuestion[1]) * 1000 : mode === "monologue" ? 5000 : 0,
     perItemAnswerMs: fixedAnswer ? Number(fixedAnswer[1]) * 1000 : mode === "short-dialogues" && /每段对话后有一个小题/.test(line) ? 10000 : 0
@@ -303,6 +320,7 @@ function buildPlan(line: string, previous: SectionPlan, sectionIndex: number): S
     qStart: range.start,
     qEnd: range.end,
     repeatCount,
+    preReadFixedMs: timing.preReadFixedMs,
     preReadMsPerQuestion: timing.preReadMsPerQuestion || (mode === previous.mode ? previous.preReadMsPerQuestion : 0),
     answerMsPerQuestion: timing.answerMsPerQuestion || (mode === previous.mode ? previous.answerMsPerQuestion : 0),
     perItemAnswerMs: timing.perItemAnswerMs || (mode === previous.mode ? previous.perItemAnswerMs : 0),
@@ -450,7 +468,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
   const startBlock = (qStart?: number, qEnd?: number, fallbackId?: string) => {
     const count = questionCount(qStart, qEnd)
     const rangeLabel = formatRange(qStart, qEnd) || currentPlan.label
-    const preReadMs = currentPlan.preReadMsPerQuestion * count
+    const preReadMs = currentPlan.preReadFixedMs || currentPlan.preReadMsPerQuestion * count
     if (preReadMs > 0) pendingInstructionGapMs = 0
     else consumeInstructionGap()
     const nextBlock: DialogueBlock = {
@@ -643,6 +661,70 @@ function toAnalyzedSegment(item: DraftSegment): AnalyzedSegment {
     pacePreset,
     stylePresetId
   }
+}
+
+export type ScriptDocumentType = "exam" | "podcast" | "news" | "general"
+
+export function detectScriptDocumentType(input: string): ScriptDocumentType {
+  const text = normalize(input)
+  if (/(?:第[一二三四五六七八九十0-9]+节|回答第?\s*\d+|每段对话读|读两遍|听下面|A\s*[,，]\s*B\s*[,，]\s*C)/i.test(text)) return "exam"
+  if (/(?:播客|podcast|episode|主持人|嘉宾|Host\s*[:：]|Guest\s*[:：])/i.test(text)) return "podcast"
+  if (/(?:新闻|news|记者|报道|本台消息|breaking\s+news)/i.test(text)) return "news"
+  return "general"
+}
+
+export function analyzeGeneralScript(input: string, documentType: Exclude<ScriptDocumentType, "exam"> = "general"): AnalyzedSegment[] {
+  const blocks = normalize(input)
+    .split(/\n\s*\n|^\s*(?:-{3,}|={3,}|#{3,})\s*$/m)
+    .map((block) => block.trim())
+    .filter(Boolean)
+  const out: AnalyzedSegment[] = []
+
+  blocks.forEach((block, blockIndex) => {
+    const groupId = `${documentType}-${blockIndex + 1}`
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean)
+    const hasSpeakerTurns = lines.some((line) => Boolean(parseSpeakerLine(line)))
+
+    if (!hasSpeakerTurns) {
+      out.push({
+        type: "tts",
+        text: lines.join("\n"),
+        label: documentType === "news" ? `新闻段落 ${blockIndex + 1}` : documentType === "podcast" ? `播客段落 ${blockIndex + 1}` : `段落 ${blockIndex + 1}`,
+        role: "narrator",
+        groupId,
+        directorNote: documentType === "news" ? "新闻播报：自然、可信、按意群停顿，不要逐字念。" : "完整段落自然朗读；保留上下文和句间语气。",
+        emotion: "neutral",
+        pacePreset: documentType === "podcast" ? "dialogue_natural" : "exam_standard",
+        stylePresetId: documentType === "news" ? "news_anchor" : "teacher"
+      })
+      return
+    }
+
+    let previous: AnalyzedSegment | undefined
+    for (const line of lines) {
+      const speaker = parseSpeakerLine(line)
+      if (!speaker && previous?.type === "tts") {
+        previous.text = `${previous.text}\n${line}`
+        continue
+      }
+      const role = speaker?.speakerTag === "W" || speaker?.speakerTag === "B" ? "female" : speaker?.speakerTag === "M" || speaker?.speakerTag === "A" ? "male" : "narrator"
+      const segment: AnalyzedSegment = {
+        type: "tts",
+        text: speaker?.text || line,
+        label: speaker?.speakerTag === "NARRATOR" ? "旁白" : speaker?.speakerTag || "旁白",
+        role,
+        groupId,
+        directorNote: role === "male" ? "自然男声对话，回应上下文含义。" : role === "female" ? "自然女声对话，回应上下文含义。" : "自然旁白，保持完整意群。",
+        emotion: role === "narrator" ? "neutral" : "conversational",
+        pacePreset: "dialogue_natural",
+        stylePresetId: role === "narrator" && documentType === "news" ? "news_anchor" : "dialogue"
+      }
+      out.push(segment)
+      previous = segment
+    }
+  })
+
+  return out
 }
 
 export function analyzeExamScript(input: string, template: ExamTemplate): AnalyzedSegment[] {

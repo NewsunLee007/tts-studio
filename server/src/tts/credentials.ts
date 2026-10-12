@@ -2,7 +2,9 @@ import type { ProviderId } from "../presets.js"
 import type { TtsCredentials } from "./types.js"
 
 const credentialEnvNames: Partial<Record<ProviderId, Record<string, string>>> = {
-  dashscope: { apiKey: "DASHSCOPE_API_KEY" },
+  dashscope: { apiKey: "DASHSCOPE_API_KEY", workspaceId: "DASHSCOPE_WORKSPACE_ID" },
+  siliconflow: { apiKey: "SILICONFLOW_API_KEY" },
+  doubao: { apiKey: "DOUBAO_API_KEY" },
   minimax: { apiKey: "MINIMAX_API_KEY" },
   google: { apiKey: "GOOGLE_TTS_API_KEY", proxyUrl: "GOOGLE_TTS_PROXY_URL" },
   google_gemini: { apiKey: "GEMINI_API_KEY", proxyUrl: "GOOGLE_TTS_PROXY_URL" },

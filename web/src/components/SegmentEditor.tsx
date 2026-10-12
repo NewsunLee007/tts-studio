@@ -15,6 +15,7 @@ type Props = {
   onUpdate: (uid: string, patch: SegmentPatch) => void
   onDelete: (uid: string) => void
   onGenerate: (uid: string) => void
+  onGenerateSingle: (uid: string) => void
   onClearAudio: (uid: string) => void
   repeatControl?: { canUse: boolean; enabled: boolean }
   onToggleRepeat?: (uid: string) => void
@@ -85,7 +86,7 @@ export function SegmentEditor(props: Props) {
     return (
       <section className="rightPane">
         <div className="rightEmpty">
-          <h2 className="emptyTitle">第 3 步｜调整并生成</h2>
+          <h2 className="emptyTitle">编辑片段</h2>
           <div className="emptySub">先拆分文稿，再点选一个片段进行调整。</div>
         </div>
       </section>
@@ -98,8 +99,7 @@ export function SegmentEditor(props: Props) {
       <section className="rightPane">
         <div className="rightCard">
           <div className="cardHead">
-            <h2 className="cardTitle">第 3 步｜调整停顿</h2>
-            <div className="cardSub">用于控制停顿</div>
+            <h2 className="cardTitle">停顿</h2>
           </div>
 
           <div className="durationGrid">
@@ -142,8 +142,8 @@ export function SegmentEditor(props: Props) {
       <section className="rightPane">
         <div className="rightCard inspectorCard">
           <div className="cardHead">
-            <h2 className="cardTitle">第 3 步｜调整音乐</h2>
-            <div className="cardSub">当前版本使用内置提示音生成，可在合成时自动混入开头</div>
+            <h2 className="cardTitle">提示音</h2>
+            <div className="cardSub">随文稿顺序合成。</div>
           </div>
           <div className="cardGrid">
             <label className="field">
@@ -218,7 +218,6 @@ export function SegmentEditor(props: Props) {
           : "生成"
   const generatedTurns = groupSegments.filter((item) => Boolean(item.audioId && item.audioUrl)).length
   const turnGroupHasAudio = isTurnByTurnGroup && generatedTurns > 0
-  const turnGroupComplete = isTurnByTurnGroup && generatedTurns === groupSegments.length
   const clearDisabled = isTurnByTurnGroup ? !turnGroupHasAudio : !seg.audioId
   const clearLabel = isTurnByTurnGroup ? "清除整题音频" : "清除音频"
   const clearCurrentAudio = () => {
@@ -233,13 +232,13 @@ export function SegmentEditor(props: Props) {
     <section className="rightPane">
       <div className="rightCard inspectorCard">
         <div className="cardHead">
-          <h2 className="cardTitle">第 3 步｜调整并生成</h2>
+          <h2 className="cardTitle">编辑片段</h2>
           <div className="cardSub">{seg.role ? `朗读角色：${segmentRoleLabel(seg)}` : seg.label ? `朗读人：${seg.label}` : "可单独调整本片段的音色和风格"}</div>
         </div>
 
         {isGeminiGroup ? (
           <label className="field">
-            <div className="label">本题实际生成语音的文本（可编辑）</div>
+            <div className="label">朗读文本</div>
             <textarea
               value={groupText}
               onChange={(e) =>
@@ -263,8 +262,8 @@ export function SegmentEditor(props: Props) {
           <div className="turnList">
             <div className="turnListHead">
               <div>
-                <div className="label">本题实际逐句生成的内容</div>
-                <div className="turnListSub">系统会按下面顺序逐句生成，并自动使用对应男女声。</div>
+                <div className="label">对话内容</div>
+                <div className="turnListSub">逐句编辑、试听或重新生成。</div>
               </div>
               <span>{groupSegments.length} 句</span>
             </div>
@@ -284,19 +283,26 @@ export function SegmentEditor(props: Props) {
                 />
                 <div className="turnPreview">
                   <div>
-                    <div className="label">本句音频预览</div>
+                    <div className="label">试听</div>
                     {item.audioUrl ? <audio className="audio" controls src={item.audioUrl} /> : <div className="hint">本句尚未生成</div>}
                   </div>
-                  <div className={item.audioId ? "readyDot readyDotOn" : "readyDot"} aria-hidden="true" />
+                  <div className="turnPreviewActions">
+                    <button className="btn turnGenerateButton" type="button" onClick={() => props.onGenerateSingle(item.uid)} disabled={item.status === "generating"}>
+                      {item.status === "generating" ? "生成中…" : item.audioId ? "重新生成本句" : "生成本句"}
+                    </button>
+                    <div className={item.audioId ? "readyDot readyDotOn" : "readyDot"} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         ) : null}
 
-        <div className="cardGrid">
-          <label className="field">
-            <div className="label">本片段音色（默认沿用全局设置）</div>
+        <details className="segmentAdvanced">
+          <summary>音色与高级调整</summary>
+          <div className="cardGrid">
+            <label className="field">
+            <div className="label">本片段音色</div>
             <select
               aria-label="本片段音色"
               value={seg.voiceId || props.globalVoiceId}
@@ -308,9 +314,9 @@ export function SegmentEditor(props: Props) {
                 </option>
               ))}
             </select>
-          </label>
+            </label>
 
-          <label className="field">
+            <label className="field">
             <div className="label">风格预设</div>
             <select
               aria-label="风格预设"
@@ -324,32 +330,30 @@ export function SegmentEditor(props: Props) {
                 </option>
               ))}
             </select>
-          </label>
+            </label>
 
-          <label className="field">
+            <label className="field">
             <div className="label">音高 {((seg.pitch || 1) * 100).toFixed(0)}%</div>
             <input className="rangeInput" type="range" min={0.8} max={1.2} step={0.02} value={seg.pitch || 1} onChange={(e) => props.onUpdate(seg.uid, { pitch: Number(e.target.value) })} />
-          </label>
+            </label>
 
-          <label className="field">
+            <label className="field">
             <div className="label">音量 {((seg.volume || 1) * 100).toFixed(0)}%</div>
             <input className="rangeInput" type="range" min={0.6} max={1.4} step={0.05} value={seg.volume || 1} onChange={(e) => props.onUpdate(seg.uid, { volume: Number(e.target.value) })} />
-          </label>
-        </div>
+            </label>
+          </div>
+        </details>
 
         {seg.directorNote ? (
-          <div className="directorNote">
-            <strong>朗读提示</strong>
-            <span>{seg.directorNote}</span>
-          </div>
+          <details className="segmentNote"><summary>朗读提示</summary><p>{seg.directorNote}</p></details>
         ) : null}
 
         {seg.generationMeta ? (
-          <div className="generationMeta">
-            <div className="generationMetaHead">
+          <details className="generationMeta">
+            <summary className="generationMetaHead">
               <strong>实际生成参数</strong>
               <span>{instructionLabel(seg.generationMeta.instructionMode)}</span>
-            </div>
+            </summary>
             <div className="generationMetaGrid">
               <div>
                 <span>模型</span>
@@ -378,39 +382,22 @@ export function SegmentEditor(props: Props) {
                 ))}
               </div>
             ) : null}
-          </div>
+          </details>
         ) : null}
 
         {isAudioReuse ? (
-          <div className="directorNote reuseNote">
-            <strong>音频复用</strong>
-            <span>这一遍不会再次调用语音服务，会直接复用第 1 遍音频，保证两遍声音完全一致。</span>
-          </div>
+          <p className="settingsHelp">第二遍复用首遍音频，不重复计费。</p>
         ) : null}
 
         {props.repeatControl?.canUse ? (
-          <div className="directorNote reuseNote">
-            <strong>重复播放</strong>
-            <span>{props.repeatControl.enabled ? "当前题组会播放两遍；第 2 遍复用第 1 遍音频。" : "当前题组只播放一遍，可一键添加第 2 遍和重读间隔。"}</span>
-            <button className="btn" type="button" onClick={() => props.onToggleRepeat?.(seg.uid)}>
-              {props.repeatControl.enabled ? "取消第二遍" : "添加第二遍"}
-            </button>
-          </div>
+          <label className="repeatToggle"><input type="checkbox" checked={props.repeatControl.enabled} onChange={() => props.onToggleRepeat?.(seg.uid)} />本题读两遍</label>
         ) : null}
 
-        <div className="previewStrip">
-          <div>
-            <div className="label">音频预览</div>
-            {isTurnByTurnGroup ? (
-              <div className="hint">{turnGroupComplete ? "本题所有句子已生成，可在上方分别试听。" : `已生成 ${generatedTurns}/${groupSegments.length} 句，请在上方逐句试听。`}</div>
-            ) : seg.audioUrl ? <audio className="audio" controls src={seg.audioUrl} /> : <div className="hint">尚未生成音频</div>}
-          </div>
-          <div className={(isTurnByTurnGroup ? turnGroupComplete : seg.audioId) ? "readyDot readyDotOn" : "readyDot"} aria-hidden="true" />
-        </div>
+        {!isTurnByTurnGroup && seg.audioUrl ? <div className="previewStrip"><audio className="audio" controls src={seg.audioUrl} /></div> : null}
         {seg.status === "error" ? <div className="error">{seg.error}</div> : null}
 
         <div className="cardActions">
-          <button className="btn" type="button" onClick={() => props.onGenerate(seg.uid)} disabled={seg.status === "generating"}>
+          <button className="btnPrimary" type="button" onClick={() => props.onGenerate(seg.uid)} disabled={seg.status === "generating"}>
             {generateLabel}
           </button>
           <button className="btnGhost" type="button" onClick={clearCurrentAudio} disabled={clearDisabled}>

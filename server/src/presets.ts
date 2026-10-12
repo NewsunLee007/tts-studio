@@ -1,4 +1,4 @@
-export type ProviderId = "openai" | "dashscope" | "minimax" | "google" | "google_gemini" | "volcengine" | "xfyun" | "tencent" | "baidu" | "huawei"
+export type ProviderId = "openai" | "dashscope" | "minimax" | "google" | "google_gemini" | "volcengine" | "doubao" | "siliconflow" | "xfyun" | "tencent" | "baidu" | "huawei"
 
 export type StylePresetId = "news_anchor" | "teacher" | "dialogue" | "slow_clear" | "exam_host" | "question_marker" | "phonics"
 
@@ -28,6 +28,7 @@ export type VoicePreset = {
   gender: VoiceGender
   locale?: string
   role?: "narrator" | "dialogue" | "question" | "general"
+  modelIds?: string[]
 }
 
 export type ProviderConfig = {
@@ -99,22 +100,34 @@ export const providerConfigs: ProviderConfig[] = [
     label: "阿里云 DashScope",
     region: "china",
     status: "ready",
-    description: "Qwen-TTS / CosyVoice，适合中文考试旁白和英文听力材料。",
+    description: "Qwen-Audio 3.1 英式音色、Qwen3 与 CosyVoice，适合中英听力材料。",
     defaultBaseUrl: "https://dashscope.aliyuncs.com/api/v1",
-    credentialFields: [{ key: "apiKey", label: "API Key", type: "password", required: true, placeholder: "sk-..." }],
+    credentialFields: [
+      { key: "apiKey", label: "百炼 API Key", type: "password", required: true, placeholder: "sk-..." },
+      { key: "workspaceId", label: "北京工作空间 ID（Qwen-Audio 3.1 必填）", type: "text", required: false }
+    ],
     models: [
-      { id: "qwen3-tts-flash", label: "Qwen3-TTS Flash（快速草稿）", description: "低延迟、多语言，适合批量预览；不发送导演指令，主要靠音色和语速控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
-      { id: "qwen3-tts-instruct-flash", label: "Qwen3-TTS Instruct Flash（指令控制）", description: "支持自然语言风格指令，适合正式考试口吻、角色约束和一致性控制", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "qwen-audio-3.1-tts-flash", label: "Qwen-Audio 3.1 Flash · 英音听力", description: "独立英式男女声；需北京地域与工作空间 ID", supportsInstructions: true, speedRange: [0.5, 2] },
+      { id: "qwen3-tts-instruct-flash", label: "Qwen3-TTS Instruct Flash（自然度推荐）", description: "支持自然语言风格指令和指令优化，适合正式考试口吻、自然对话、角色约束和一致性控制", supportsInstructions: true, supportsEmotion: true, speedRange: [0.5, 2] },
+      { id: "qwen3-tts-flash", label: "Qwen3-TTS Flash（仅快速草稿）", description: "低延迟、多语言，但不接收导演指令；只建议用于快速试听", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "cosyvoice-v3-flash", label: "CosyVoice v3 Flash（高质量）", description: "CosyVoice 系统音色路线，适合正式导出；使用音色、语速、音高、音量控制", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "cosyvoice-v3-plus", label: "CosyVoice v3 Plus（高质量）", description: "更偏正式质量路线，需账号和音色权限支持；使用 v3-plus 支持的系统音色", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "qwen-tts", label: "qwen-tts（旧版兼容）", description: "旧版兼容入口；建议只在账号暂未开通 Qwen3/CosyVoice 时使用", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] },
       { id: "qwen-tts-latest", label: "qwen-tts-latest（旧版最新）", description: "旧版 latest 入口；能力随服务端变化，正式批量前建议先生成样例", supportsInstructions: false, supportsEmotion: true, speedRange: [0.5, 2] }
     ],
     voices: [
+      { id: "Emily_v3.1", label: "Emily · 英式女声", gender: "female", locale: "en-GB", role: "dialogue", modelIds: ["qwen-audio-3.1-tts-flash"] },
+      { id: "Luna_v3.1", label: "Luna · 英式女声", gender: "female", locale: "en-GB", role: "question", modelIds: ["qwen-audio-3.1-tts-flash"] },
+      { id: "Eric_v3.1", label: "Eric · 英式男声", gender: "male", locale: "en-GB", role: "dialogue", modelIds: ["qwen-audio-3.1-tts-flash"] },
+      { id: "Luca_v3.1", label: "Luca · 英式男声", gender: "male", locale: "en-GB", role: "dialogue", modelIds: ["qwen-audio-3.1-tts-flash"] },
+      { id: "wenhuaiqing_v3.1", label: "闻怀清 · 中文旁白", gender: "female", locale: "zh-CN", role: "narrator", modelIds: ["qwen-audio-3.1-tts-flash"] },
       { id: "Cherry", label: "Cherry 清晰女声", gender: "female", locale: "en-US", role: "narrator" },
       { id: "Serena", label: "Serena 自然女声", gender: "female", locale: "en-US", role: "dialogue" },
+      { id: "Maia", label: "Maia 知性温柔女声（中英）", gender: "female", locale: "en-US", role: "dialogue" },
       { id: "Chelsie", label: "Chelsie 活泼女声", gender: "female", locale: "en-US", role: "dialogue" },
       { id: "Ethan", label: "Ethan 清晰男声", gender: "male", locale: "en-US", role: "dialogue" },
+      { id: "Kai", label: "Kai 沉稳舒缓男声（中英）", gender: "male", locale: "en-US", role: "dialogue" },
+      { id: "Neil", label: "Neil 专业播音男声（中英）", gender: "male", locale: "zh-CN", role: "narrator" },
       { id: "longanyang", label: "CosyVoice 龙安洋 男声", gender: "male", locale: "zh-CN", role: "dialogue" },
       { id: "longanhuan_v3", label: "CosyVoice 龙安欢 v3 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
       { id: "longanhuan", label: "CosyVoice 龙安欢 女声", gender: "female", locale: "zh-CN", role: "dialogue" },
@@ -123,7 +136,7 @@ export const providerConfigs: ProviderConfig[] = [
       { id: "longshu_v3", label: "CosyVoice 龙书 v3 男声", gender: "male", locale: "zh-CN", role: "dialogue" }
     ],
     capabilities: ["指令控制", "多模型", "中英双语", "适合考试旁白"],
-    defaultModelId: "qwen3-tts-flash",
+    defaultModelId: "qwen3-tts-instruct-flash",
     defaultVoiceId: "Cherry"
   },
   {
@@ -132,7 +145,7 @@ export const providerConfigs: ProviderConfig[] = [
     region: "china",
     status: "ready",
     description: "MiniMax 新一代同步语音合成，适合自然英文对话与高质量正式导出。",
-    defaultBaseUrl: "https://api.minimaxi.com/v1/t2a_v2",
+    defaultBaseUrl: "https://api.minimax.cn/v1/t2a_v2",
     credentialFields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
     models: [
       { id: "speech-2.8-turbo", label: "Speech 2.8 Turbo（快速预览）", description: "生成速度快，适合先试听整套材料", supportsEmotion: true, speedRange: [0.5, 2] },
@@ -150,6 +163,44 @@ export const providerConfigs: ProviderConfig[] = [
     capabilities: ["Speech 2.8", "40 种语言", "自然韵律", "最长 10000 字符"],
     defaultModelId: "speech-2.8-turbo",
     defaultVoiceId: "English_Graceful_Lady"
+  },
+  {
+    id: "siliconflow",
+    label: "硅基流动 CosyVoice",
+    region: "china",
+    status: "ready",
+    description: "一个 API Key 即可使用开源语音模型的托管服务，支持中文和英文。",
+    defaultBaseUrl: "https://api.siliconflow.cn/v1",
+    credentialFields: [{ key: "apiKey", label: "硅基流动 API Key", type: "password", required: true, placeholder: "sk-..." }],
+    models: [
+      { id: "FunAudioLLM/CosyVoice2-0.5B", label: "CosyVoice2 · 日常教学", description: "中英双语；托管 API 按量付费，开源模型本身可自部署", speedRange: [0.5, 2] },
+      { id: "fnlp/MOSS-TTSD-v0.5", label: "MOSS-TTSD · 自然旁白", description: "中英双语与长篇语音；本工作台按角色分段生成", speedRange: [0.5, 2] }
+    ],
+    voices: [
+      { id: "alex", label: "Alex · 男声", gender: "male", locale: "en", role: "dialogue" },
+      { id: "anna", label: "Anna · 女声", gender: "female", locale: "en", role: "dialogue" },
+      { id: "benjamin", label: "Benjamin · 男声", gender: "male", locale: "en", role: "narrator" },
+      { id: "claire", label: "Claire · 女声", gender: "female", locale: "en", role: "question" }
+    ],
+    capabilities: ["单密钥接入", "开源模型托管", "中英双语"],
+    defaultModelId: "FunAudioLLM/CosyVoice2-0.5B",
+    defaultVoiceId: "anna"
+  },
+  {
+    id: "doubao",
+    label: "豆包语音 2.0",
+    region: "china",
+    status: "ready",
+    description: "新版 HTTP 语音合成，用一个 API Key 接入；与旧版火山账号配置分开。",
+    defaultBaseUrl: "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+    credentialFields: [{ key: "apiKey", label: "豆包语音 API Key（新版控制台）", type: "password", required: true }],
+    models: [{ id: "seed-tts-2.0", label: "豆包语音合成 2.0", description: "需要开通 2.0 服务并选择 2.0 音色", speedRange: [0.5, 2] }],
+    voices: [
+      { id: "zh_female_vv_uranus_bigtts", label: "Vivi · 中英女声", gender: "female", role: "dialogue" }
+    ],
+    capabilities: ["新版单密钥", "流式音频", "中英双语"],
+    defaultModelId: "seed-tts-2.0",
+    defaultVoiceId: "zh_female_vv_uranus_bigtts"
   },
   {
     id: "google",

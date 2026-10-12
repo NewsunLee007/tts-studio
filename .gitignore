@@ -35,3 +35,8 @@ pnpm-debug.log*
 # Temporary files
 tmp/
 temp/
+.vercel
+.wrangler/
+.dev.vars*
+data/
+output/

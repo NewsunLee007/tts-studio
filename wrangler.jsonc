@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tts-studio",
+  "account_id": "41c0024342aae8d7b6a8b67c7def1d3e",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-10-12",
+  "workers_dev": true,
+  "routes": [{ "pattern": "tts.newsunenglish.com/*", "zone_id": "18f1e2f6aa0dead6233f033ffc66db5d" }],
+  "r2_buckets": [{ "binding": "AUDIO", "bucket_name": "tts-studio-audio" }],
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/audio/*", "/exports/*", "/media/*", "/_storage/*"]
+  },
+  "containers": [{
+    "class_name": "TtsApi",
+    "image": "./Dockerfile",
+    "instance_type": "basic",
+    "max_instances": 1
+  }],
+  "durable_objects": { "bindings": [{ "name": "TTS_API", "class_name": "TtsApi" }] },
+  "exports": { "TtsApi": { "type": "durable-object", "storage": "sqlite" } },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

@@ -257,6 +257,34 @@
   margin-top: 10px;
 }
 
+.analysisMessage,
+.smartAssistBadge {
+  margin-top: 10px;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.analysisMessage {
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  font-weight: 750;
+}
+
+.smartAssistBadge {
+  border: 1px solid rgba(13, 148, 136, 0.18);
+  background: rgba(13, 148, 136, 0.08);
+  color: #0f766e;
+}
+
+.smartAssistLocal {
+  border-color: rgba(93, 110, 135, 0.16);
+  background: rgba(93, 110, 135, 0.06);
+  color: var(--muted-strong);
+}
+
 .workspace {
   width: min(1760px, 100%);
   margin: 0 auto;
@@ -348,6 +376,47 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+
+.roleRules {
+  margin: 10px 10px 0;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 12px;
+  background: rgba(239, 246, 255, 0.62);
+}
+
+.roleRules summary {
+  padding: 10px 11px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.roleRulesSummary {
+  color: var(--muted-strong);
+  font-weight: 650;
+}
+
+.roleRuleGrid {
+  padding: 2px 10px 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.roleRulesHint {
+  padding: 0 10px 10px;
+  color: var(--muted-strong);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.mobileInspectTabs {
+  display: none;
 }
 
 .leftHead {
@@ -2049,4 +2118,531 @@ textarea:focus {
     justify-content: space-between;
   }
 
+}
+
+@media (max-width: 960px) and (orientation: portrait) {
+  .mobileInspectTabs {
+    position: sticky;
+    top: 8px;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid rgba(93, 110, 135, 0.18);
+    border-radius: 12px;
+    background: rgba(248, 250, 252, 0.94);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobileInspectTab {
+    min-height: 40px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted-strong);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .mobileInspectTabActive {
+    background: #2563eb;
+    color: #fff;
+  }
+
+  .mobileInspectTab:disabled {
+    opacity: 0.42;
+  }
+
+  .segmentPane.mobileInspectPanel:not(.mobileInspectActive),
+  .editorStack.mobileInspectPanel:not(.mobileInspectActive) {
+    display: none;
+  }
+
+  .segmentPane.mobileInspectPanel.mobileInspectActive {
+    display: block;
+  }
+
+  .editorStack.mobileInspectPanel.mobileInspectActive {
+    display: flex;
+  }
+
+  .leftPane .list {
+    max-height: min(52svh, 520px);
+    overflow: auto;
+  }
+
+  .roleRuleGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 2026 teacher-first workspace */
+.topbar {
+  background: rgba(255, 253, 248, 0.96);
+  border-bottom-color: rgba(50, 62, 82, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.topbarRow {
+  grid-template-columns: minmax(230px, 0.72fr) minmax(260px, 0.9fr) auto;
+  gap: 16px;
+  padding-top: 10px;
+  padding-bottom: 8px;
+}
+
+.brandMark {
+  width: 40px;
+  height: 40px;
+  border-radius: 50% 50% 44% 56%;
+  background: var(--ink);
+  box-shadow: 0 10px 24px rgba(23, 35, 59, 0.18);
+}
+
+.brandTitle {
+  font-family: var(--display);
+  font-size: 21px;
+  letter-spacing: 0.02em;
+}
+
+.brandSub {
+  margin-top: 1px;
+  font-size: 11px;
+}
+
+.projectPulse {
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(50, 62, 82, 0.12);
+  border-radius: 12px;
+  background: #f8f5ed;
+}
+
+.projectPulseHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.projectPulseHead strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-strong);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providerBadge {
+  width: auto;
+  max-width: 170px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectProgressTrack {
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(50, 62, 82, 0.10);
+}
+
+.projectProgressTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--teal));
+  transition: width 240ms ease;
+}
+
+.topbarActions {
+  gap: 7px;
+}
+
+.topbarExport {
+  display: inline-grid;
+  grid-template-columns: 72px auto;
+  gap: 5px;
+}
+
+.topbarActions .formatSelect {
+  width: 72px;
+}
+
+.topbarActions .btn,
+.topbarActions .btnGhost,
+.topbarActions .btnPrimary,
+.topbarActions .btnAccent,
+.topbarActions .settingsButton {
+  min-height: 36px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.teacherSteps {
+  padding-bottom: 7px;
+  gap: 18px;
+}
+
+.teacherStep {
+  position: relative;
+  font-size: 11px;
+}
+
+.teacherStep:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: calc(100% + 6px);
+  width: 8px;
+  height: 1px;
+  background: rgba(50, 62, 82, 0.18);
+}
+
+.workspace {
+  gap: 14px;
+  padding: 14px 18px;
+}
+
+.leftPane,
+.rightCard,
+.rightEmpty {
+  border-radius: 18px;
+  border-color: rgba(50, 62, 82, 0.13);
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 10px 34px rgba(42, 49, 61, 0.07);
+  backdrop-filter: none;
+}
+
+.bulkPasteCard {
+  padding: 20px;
+}
+
+.bulkHero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.bulkEyebrow {
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.bulkTitle {
+  margin: 4px 0 5px;
+  color: var(--ink);
+  font: 700 25px/1.22 var(--display);
+}
+
+.bulkAiState {
+  flex: none;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.oneClickPromise {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin: 14px 0 10px;
+}
+
+.oneClickPromise span {
+  position: relative;
+  min-width: 0;
+  padding: 8px 7px;
+  border-radius: 10px;
+  background: #f4f1e9;
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.oneClickPromise b {
+  display: inline-grid;
+  width: 17px;
+  height: 17px;
+  margin-right: 3px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: white;
+  font-size: 9px;
+}
+
+.bulkPasteCard .pasteArea {
+  margin-top: 0;
+  border-radius: 14px;
+  background: #fffefb;
+}
+
+.bulkPrimaryActions {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bulkCreateButton {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 13px;
+  background: var(--ink);
+  border-color: var(--ink);
+  box-shadow: 0 10px 22px rgba(23, 35, 59, 0.16);
+  font-size: 13px;
+}
+
+.bulkReviewButton,
+.bulkClearButton {
+  min-height: 48px;
+}
+
+.segmentAdvanced {
+  margin-top: 12px;
+  padding: 0 12px;
+  border: 1px solid rgba(50, 62, 82, 0.12);
+  border-radius: 13px;
+  background: #f8f5ed;
+}
+
+.segmentAdvanced > summary,
+.generationMeta > summary {
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.segmentAdvanced[open] {
+  padding-bottom: 12px;
+}
+
+.turnRow {
+  border-radius: 16px;
+  border-left-width: 4px;
+}
+
+.turnRow:has(.turnBadgeMale) {
+  border-left-color: var(--blue);
+}
+
+.turnRow:has(.turnBadgeFemale) {
+  border-left-color: #c14f82;
+}
+
+.turnPreviewActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.turnGenerateButton {
+  white-space: nowrap;
+}
+
+.generationMeta {
+  padding: 0 12px 10px;
+}
+
+.generationMeta:not([open]) {
+  padding-bottom: 0;
+}
+
+.generationMetaHead {
+  list-style-position: inside;
+}
+
+@media (max-width: 1240px) {
+  .topbarRow {
+    grid-template-columns: minmax(230px, 0.7fr) minmax(260px, 1fr);
+  }
+
+  .topbarActions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 960px) and (orientation: portrait) {
+  .topbar {
+    position: static;
+  }
+
+  .topbarRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    padding: 8px 12px;
+  }
+
+  .brand {
+    align-items: center;
+  }
+
+  .brandMark {
+    width: 34px;
+    height: 34px;
+    font-size: 15px;
+  }
+
+  .brandTitle {
+    font-size: 18px;
+  }
+
+  .brandSub {
+    display: none;
+  }
+
+  .projectPulse {
+    padding: 5px 8px;
+  }
+
+  .topbarActions {
+    grid-column: auto;
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) auto 44px;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .topbarActions .topbarGenerate {
+    width: 100%;
+  }
+
+  .topbarExport {
+    grid-template-columns: 66px minmax(88px, auto);
+  }
+
+  .topbarActions .settingsButton {
+    width: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .topbarActions .settingsButton span:last-child {
+    display: none;
+  }
+
+  .teacherSteps {
+    display: none;
+  }
+
+  .workspace {
+    padding: 10px 12px 14px;
+    gap: 10px;
+  }
+
+  .bulkPasteCard {
+    padding: 15px;
+  }
+
+  .bulkTitle {
+    font-size: 22px;
+  }
+
+  .bulkPasteCard .pasteArea {
+    min-height: 230px;
+  }
+
+  .bulkPasteHasSegments .pasteArea {
+    min-height: 140px;
+    max-height: 210px;
+  }
+
+  .mobileInspectTabs {
+    top: 8px;
+  }
+
+  .rightCard {
+    padding: 14px;
+  }
+
+  .transportBar {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .projectPulseHead strong {
+    font-size: 10px;
+  }
+
+  .providerBadge {
+    max-width: 125px;
+  }
+
+  .topbarActions {
+    grid-template-columns: minmax(135px, 1fr) auto 42px;
+  }
+
+  .topbarExport {
+    grid-template-columns: 58px minmax(80px, auto);
+  }
+
+  .topbarActions .formatSelect {
+    width: 58px;
+    padding-left: 7px;
+    padding-right: 4px;
+  }
+
+  .topbarActions .btnAccent {
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+
+  .bulkHero {
+    gap: 10px;
+  }
+
+  .bulkAiState {
+    display: none;
+  }
+
+  .oneClickPromise {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bulkPrimaryActions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .bulkCreateButton {
+    grid-column: 1 / -1;
+  }
+
+  .turnPreview {
+    grid-template-columns: 1fr;
+  }
+
+  .turnPreviewActions {
+    justify-content: space-between;
+  }
+
+  .turnGenerateButton {
+    flex: 1;
+  }
 }

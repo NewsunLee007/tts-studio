@@ -8,7 +8,8 @@ import {
   ensureStorage,
   exportPathWithExt,
   exportsDir,
-  isDatabaseStorageEnabled,
+  isDurableStorageEnabled,
+  storageBackend,
   jobDir,
   materializeSegment,
   readAudioBlob,
@@ -26,17 +27,22 @@ import {
   type TtsModelPreset,
   type VoicePreset
 } from "./presets.js"
-import { analyzeExamScript, type ExamTemplate } from "./scriptAnalyzer.js"
+import { analyzeExamScript, analyzeGeneralScript, detectScriptDocumentType, type ExamTemplate } from "./scriptAnalyzer.js"
+import { normalizeScriptWithDeepSeek, smartScriptAssistStatus } from "./smartScriptAnalyzer.js"
 import { dashscopeTts } from "./tts/providers/dashscope.js"
 import { googleTts } from "./tts/providers/google.js"
 import { googleGeminiDialogueTts, googleGeminiTts } from "./tts/providers/googleGemini.js"
 import { minimaxTts } from "./tts/providers/minimax.js"
+import { siliconflowTts } from "./tts/providers/siliconflow.js"
+import { doubaoTts } from "./tts/providers/doubao.js"
+import { explainProviderError } from "./tts/providerErrors.js"
 import { openAiTts } from "./tts/providers/openai.js"
 import { tencentTts } from "./tts/providers/tencent.js"
 import { volcengineTts } from "./tts/providers/volcengine.js"
 import { xfyunTts } from "./tts/providers/xfyun.js"
 import { preparePhonicsRequest } from "./tts/phonics.js"
 import { hasServerCredentials, resolveProviderCredentials } from "./tts/credentials.js"
+import { normalizeTextForTts } from "./tts/textPreprocess.js"
 import { runFfmpeg } from "./ffmpeg.js"
 import type { TtsAudio, TtsCredentials, UnifiedTtsRequest } from "./tts/types.js"
 
@@ -80,6 +86,7 @@ function musicPresetDurationMs(presetId: string, fallbackMs: number) {
 type AnalyzeBody = {
   text?: string
   template?: ExamTemplate
+  smart?: boolean
 }
 
 type GeminiDialogueBody = {
@@ -290,7 +297,7 @@ function legacyPresetsResponse() {
     },
     dashscope: {
       voices: dashscope?.voices || [],
-      defaultModel: dashscope?.defaultModelId || "qwen3-tts-flash",
+      defaultModel: dashscope?.defaultModelId || "qwen3-tts-instruct-flash",
       defaultBaseUrl: dashscope?.defaultBaseUrl || "https://dashscope.aliyuncs.com/api/v1"
     },
     styles: stylePresets.map((p) => ({ id: p.id, label: p.label }))
@@ -302,17 +309,17 @@ function stableStyleContract(body: Partial<TtsRequestBody>, presetPrompt?: strin
   const isChinese = hasChineseText(text)
   return [
     "STYLE LOCK: Keep the same voice identity, accent, speaking rate, energy, emotion level, pitch contour, articulation, and microphone distance across all generated segments in this project.",
+    body.directorNote ? `CURRENT SEGMENT AND CONVERSATION NOTE: ${body.directorNote}` : "",
     "Do not improvise a different character, accent, rhythm, or emotional intensity between requests.",
     "NO TRANSLATION: Do not translate. Speak in the original language of the input text. Keep Chinese in Chinese and English in English.",
     isChinese
       ? "LANGUAGE OVERRIDE: This segment is Chinese. Speak in natural Mandarin Putonghua with correct Chinese pronunciation. Do not pronounce Chinese as English."
       : "LANGUAGE OVERRIDE: This segment is English. Speak in natural English. Do not read English with Chinese pronunciation.",
-    "Use a restrained exam-listening delivery: clear consonants, stable volume, controlled pauses, no dramatic acting, no exaggerated emotion.",
+    "Use a restrained exam-listening delivery: stable volume, meaningful pauses, no dramatic acting, no exaggerated emotion. Never use choppy, word-by-word, syllable-by-syllable, or metronomic delivery.",
     isChinese
       ? "CHINESE DEFAULT: You are a professional native Mandarin broadcaster in CCTV News anchor style recording educational materials for middle school students. Accent: Standard Putonghua, Level 1-A quality, no foreign accent and no regional dialect. Articulation: zi zheng qiang yuan, full clear tones, natural audible neutral tones, clear zh/ch/sh/r without excessive erhua. Speed: measured and steady, approximately 230 Chinese characters per minute. Rhythm: logical phrase-group pauses, authoritative yet warm."
-      : "ENGLISH DEFAULT: You are a professional voice actor recording English listening test materials for 9th-grade ESL students in China. Tone: professional, warm, authoritative but approachable. Accent: Standard British RP. Speed: measured educational pace, approximately 110-125 words per minute. Prioritize clear enunciation, strict word endings (ed, s, t, d), and distinct punctuation pauses.",
+      : "ENGLISH DEFAULT: You are a native professional voice actor recording English listening materials for 9th-grade ESL students in China. Tone: warm, attentive, and credible. Accent: Standard British RP. Speed: measured educational pace, approximately 110-125 words per minute. Use natural English stress timing, connected speech, contractions, reduced function words, thought groups, and sentence-level intonation. Keep final consonants audible without over-emphasizing them. Dialogue must sound like two people responding to meaning, not reading isolated sentences.",
     !isChinese && presetPrompt ? `Preset: ${presetPrompt}` : "",
-    body.directorNote ? `Segment role note: ${body.directorNote}` : "",
     body.stylePrompt ? `Project note: ${body.stylePrompt}` : ""
   ]
     .filter(Boolean)
@@ -324,14 +331,14 @@ function hasChineseText(text: string) {
 }
 
 function defaultTargetSpeed(text: string) {
-  return hasChineseText(text) ? 210 / 250 : 118 / 150
+  return hasChineseText(text) ? 230 / 250 : 118 / 130
 }
 
 function supportsNaturalLanguageInstructions(provider: ProviderId, model?: string) {
   const value = model || providerConfig(provider)?.defaultModelId || ""
   if (provider === "openai") return /gpt-4o/i.test(value)
   if (provider === "google_gemini") return true
-  if (provider === "dashscope") return /instruct/i.test(value)
+  if (provider === "dashscope") return /instruct|qwen-audio/i.test(value)
   return false
 }
 
@@ -365,7 +372,7 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
     provider,
     body.credentials || (body.apiKey ? { apiKey: body.apiKey } : {})
   )
-  const phonics = preparePhonicsRequest(body.text || "", body.stylePresetId)
+  const phonics = preparePhonicsRequest(normalizeTextForTts(body.text || ""), body.stylePresetId)
   const preset = body.stylePresetId ? stylePresets.find((p) => p.id === body.stylePresetId) : undefined
   const rawStylePrompt = stableStyleContract(
     {
@@ -398,6 +405,8 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
   if (provider === "openai") audio = await openAiTts(req)
   else if (provider === "dashscope") audio = await dashscopeTts(req)
   else if (provider === "minimax") audio = await minimaxTts(req)
+  else if (provider === "siliconflow") audio = await siliconflowTts(req)
+  else if (provider === "doubao") audio = await doubaoTts(req)
   else if (provider === "google") audio = await googleTts(req)
   else if (provider === "google_gemini") audio = await googleGeminiTts(req)
   else if (provider === "volcengine") audio = await volcengineTts(req)
@@ -413,6 +422,7 @@ async function writeAudioToMp3(id: string, audio: TtsAudio) {
   if (audio.format === "mp3") {
     await fs.writeFile(filePath, audio.bytes)
     await saveAudioBlob("segment", id, audio.bytes, "audio/mpeg")
+    if (isDurableStorageEnabled()) await fs.rm(filePath, { force: true })
     return
   }
 
@@ -422,6 +432,7 @@ async function writeAudioToMp3(id: string, audio: TtsAudio) {
   await fs.writeFile(inputWav, audio.bytes)
   await runFfmpeg(["-y", "-i", inputWav, "-c:a", "libmp3lame", "-q:a", "2", filePath])
   await saveAudioBlob("segment", id, await fs.readFile(filePath), "audio/mpeg")
+  if (isDurableStorageEnabled()) await fs.rm(filePath, { force: true })
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
 }
 
@@ -509,11 +520,12 @@ async function sendStoredAudio(req: express.Request, res: express.Response, kind
 }
 
 export async function createApp() {
+  if (process.env.REQUIRE_DURABLE_STORAGE === "true" && !isDurableStorageEnabled()) throw new Error("Durable audio storage is required")
   const app = express()
   app.disable("x-powered-by")
   app.use(express.json({ limit: "2mb" }))
 
-  if (isDatabaseStorageEnabled()) {
+  if (isDurableStorageEnabled()) {
     app.get("/audio/:file", (req, res) => {
       void sendStoredAudio(req, res, "segment")
     })
@@ -534,7 +546,7 @@ export async function createApp() {
   app.get("/api/health", (_req, res) => {
     res.json({
       ok: true,
-      storage: isDatabaseStorageEnabled() ? "neon" : "local"
+      storage: storageBackend()
     })
   })
 
@@ -548,7 +560,8 @@ export async function createApp() {
         )
       })),
       styles: stylePresets.map((p) => ({ id: p.id, label: p.label })),
-      paces: pacePresets
+      paces: pacePresets,
+      scriptAssist: smartScriptAssistStatus()
     })
   })
 
@@ -577,14 +590,64 @@ export async function createApp() {
     res.json(legacyPresetsResponse())
   })
 
-  app.post("/api/script/analyze", (req, res) => {
+  app.post("/api/providers/:provider/test", async (req, res) => {
+    const provider = req.params.provider as ProviderId
+    const config = providerConfig(provider)
+    if (!config || config.status !== "ready") { res.status(400).json({ error: "该服务尚未接入。" }); return }
+    try {
+      const voice = req.body.voice || config.defaultVoiceId
+      const locale = config.voices.find((item) => item.id === voice)?.locale || "en-US"
+      const text = locale.startsWith("zh") ? "你好，欢迎使用听见配音工作室。" : "Good morning. Welcome to our English listening practice."
+      const audio = await synthesize({ ...req.body, provider, text, model: req.body.model || config.defaultModelId, voice })
+      const id = randomUUID()
+      await writeAudioToMp3(id, audio)
+      res.json({ ok: true, url: `/audio/${id}.mp3`, meta: audio.meta })
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Unknown error"
+      res.status(502).json({ error: explainProviderError(detail), detail })
+    }
+  })
+
+  app.post("/api/script/analyze", async (req, res) => {
     const body = req.body as AnalyzeBody
     const text = typeof body.text === "string" ? body.text : ""
     if (!text.trim()) {
       res.status(400).json({ error: "text required" })
       return
     }
-    res.json({ segments: analyzeExamScript(text, body.template || {}) })
+    if (!body.smart) {
+      const documentType = detectScriptDocumentType(text)
+      res.json({
+        segments: documentType === "exam" ? analyzeExamScript(text, body.template || {}) : analyzeGeneralScript(text, documentType),
+        analysis: { mode: "local", documentType, summary: "已使用本地规则拆分" }
+      })
+      return
+    }
+
+    try {
+      const smart = await normalizeScriptWithDeepSeek(text)
+      const documentType = smart.documentType === "general" ? detectScriptDocumentType(smart.normalizedText) : smart.documentType
+      res.json({
+        segments: documentType === "exam" ? analyzeExamScript(smart.normalizedText, body.template || {}) : analyzeGeneralScript(smart.normalizedText, documentType),
+        analysis: {
+          mode: "ai",
+          model: smart.model,
+          documentType,
+          summary: smart.summary
+        }
+      })
+    } catch (error) {
+      const documentType = detectScriptDocumentType(text)
+      res.json({
+        segments: documentType === "exam" ? analyzeExamScript(text, body.template || {}) : analyzeGeneralScript(text, documentType),
+        analysis: {
+          mode: "local",
+          documentType,
+          summary: "智能拆分不可用，已自动使用本地规则",
+          warning: error instanceof Error ? error.message : "智能拆分不可用"
+        }
+      })
+    }
   })
 
   app.post("/api/gemini/tts/dialogue", async (req, res) => {
@@ -609,7 +672,7 @@ export async function createApp() {
         credentials,
         baseUrl: body.baseUrl,
         model: body.model,
-        prompt,
+        prompt: normalizeTextForTts(prompt),
         speakers,
         speed
       })
@@ -618,7 +681,7 @@ export async function createApp() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       const status = typeof message === "string" ? statusFromProviderError(message) : null
-      res.status(status || 500).json({ error: message })
+      res.status(status || 500).json({ error: explainProviderError(message), detail: message })
     }
   })
 
@@ -722,6 +785,7 @@ export async function createApp() {
         await runFfmpeg(["-y", "-i", joinedWav, "-c:a", "libmp3lame", "-q:a", "2", finalFile])
       }
       await saveAudioBlob("export", id, await fs.readFile(finalFile), format === "wav" ? "audio/wav" : "audio/mpeg")
+      if (isDurableStorageEnabled()) await fs.rm(finalFile, { force: true })
 
       res.json({ id, url: `/exports/${id}.${format}` })
     } catch (err) {
