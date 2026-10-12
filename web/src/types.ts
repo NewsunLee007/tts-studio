@@ -91,6 +91,7 @@ export type ExamTemplate = {
   schoolYear: string
   semester: string
   examName: string
+  introText?: string
   subject: string
   grade: string
   examType: string

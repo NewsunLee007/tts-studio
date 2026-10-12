@@ -7,6 +7,8 @@ import { SettingsPage } from "./components/SettingsPage"
 import { TopBar } from "./components/TopBar"
 import { ServiceHub } from "./components/ServiceHub"
 import { LocalTtsPage } from "./components/LocalTtsPage"
+import { AddSegmentDialog, type NewSegment } from "./components/AddSegmentDialog"
+import { buildExamIntro, insertAfterSegment } from "./lib/examWorkflow"
 import "./studio.css"
 import { PreviewPlayer } from "./lib/previewPlayer"
 import type { ExamDraftSegment } from "./lib/examScriptParser"
@@ -33,7 +35,6 @@ import type {
 type ApplyMode = "append" | "replace"
 type DirectorSegment = Segment & { stylePresetId?: string }
 type TtsResult = { id?: string; url?: string; error?: string; meta?: TtsGenerationMeta }
-type AutoWorkflowStage = "idle" | "analyzing" | "ready" | "generating" | "compose-pending" | "composing" | "done" | "error"
 
 function isSecondPassSegment(segment: Segment) {
   return segment.type === "tts" && /第\s*2\s*遍|第2遍/.test(segment.directorNote || "")
@@ -532,8 +533,13 @@ export default function App() {
   const [bulkRunning, setBulkRunning] = useState(false)
   const [bulkProgressText, setBulkProgressText] = useState("")
   const [analyzing, setAnalyzing] = useState(false)
-  const [autoWorkflow, setAutoWorkflow] = useState<AutoWorkflowStage>("idle")
+  const [showAddSegment, setShowAddSegment] = useState(false)
   const [scriptAssist, setScriptAssist] = useState<ProvidersResponse["scriptAssist"]>()
+  const [smartModel, setSmartModel] = useState(() => {
+    const saved = safeGetItem("tts_deepseek_model") || "deepseek-flash"
+    return /^deepseek-[a-zA-Z0-9.-]{1,80}$/.test(saved) && !["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"].includes(saved) ? saved : "deepseek-flash"
+  })
+  useEffect(() => { safeSetItem("tts_deepseek_model", smartModel) }, [smartModel])
   const [analysisMessage, setAnalysisMessage] = useState("")
   const [mobileInspectPanel, setMobileInspectPanel] = useState<"list" | "editor">("list")
   const stopRef = useRef(false)
@@ -870,10 +876,8 @@ export default function App() {
   useEffect(() => () => { previewPlayerRef.current?.dispose(); previewPlayerRef.current = null }, [])
 
   useEffect(() => {
-    if (workspaceView !== "studio") {
-      stopPreview()
-      document.querySelectorAll<HTMLAudioElement>(".workspace audio").forEach(audio => audio.pause())
-    }
+    stopPreview()
+    document.querySelectorAll<HTMLAudioElement>(".workspace audio, .exportPage audio").forEach(audio => audio.pause())
   }, [workspaceView, stopPreview])
 
   function seekPreview(index: number) {
@@ -998,48 +1002,51 @@ export default function App() {
     })
   }
 
-  function addTts() {
+  function addTts(text = "") {
     const segment = defaultTtsSegment({ voiceId: voiceForRole("narrator"), modelId, stylePresetId: "", stylePrompt: "", pacePreset, speed: calibratedSpeed })
+    segment.text = text
     setSegments((prev) => insertAfterSelection(prev, segment))
     setSelectedUid(segment.uid)
+    setMobileInspectPanel("editor")
   }
 
-  function addSilence() {
-    const segment: Segment = { uid: uid(), type: "silence", durationMs: 1000, role: "neutral" }
+  function addSilence(durationMs = 3000) {
+    const segment: Segment = { uid: uid(), type: "silence", durationMs, role: "neutral" }
     setSegments((prev) => insertAfterSelection(prev, segment))
     setSelectedUid(segment.uid)
+    setMobileInspectPanel("editor")
   }
 
-  function addMusic() {
-    const presetId = template.introMusicPreset || "piano"
+  function addMusic(durationMs = 3500) {
+    const presetId = "soft"
     const segment: Segment = {
       uid: uid(),
       type: "music",
       presetId,
-      durationMs: musicPresetDurationMs(presetId, 3500),
-      label: presetId === "piano" ? "钢琴曲导入音乐" : "导入音乐",
+      durationMs: musicPresetDurationMs(presetId, durationMs),
+      label: "提示音乐",
       role: "music"
     }
     setSegments((prev) => insertAfterSelection(prev, segment))
     setSelectedUid(segment.uid)
+    setMobileInspectPanel("editor")
   }
 
   function insertAfterSelection(input: Segment[], segment: Segment) {
-    if (!selectedUid) return [...input, segment]
-    const selected = input.find((item) => item.uid === selectedUid)
-    if (!selected) return [...input, segment]
-    const selectedGroupId = selected.type === "tts" || selected.type === "silence" ? selected.groupId : undefined
-    let insertAt = input.findIndex((item) => item.uid === selectedUid)
-    if (selectedGroupId) {
-      const lastInGroup = input.reduce((last, item, index) => {
-        const groupId = item.type === "tts" || item.type === "silence" ? item.groupId : undefined
-        return groupId === selectedGroupId ? index : last
-      }, insertAt)
-      insertAt = lastInGroup
-    }
-    const copy = [...input]
-    copy.splice(insertAt + 1, 0, segment)
-    return copy
+    return insertAfterSegment(input, selectedUid, segment)
+  }
+
+  function addChosenSegment(value: NewSegment) {
+    if (value.type === "silence") addSilence(value.durationMs)
+    else if (value.type === "music") addMusic(value.durationMs)
+    else addTts(value.text)
+    setShowAddSegment(false)
+  }
+
+  function selectAdjacentSegment(offset: number) {
+    const index = segments.findIndex(item => item.uid === selectedUid)
+    const next = segments[index + offset]
+    if (next) { setSelectedUid(next.uid); setMobileInspectPanel("editor") }
   }
 
   function repeatEnabledForGroup(groupId?: string) {
@@ -1049,6 +1056,7 @@ export default function App() {
 
   function canRepeatSelectedGroup(segment: Segment | null) {
     if (!segment || segment.type !== "tts" || !segment.groupId || isQuestionRole(segment)) return false
+    if (segment.role === "intro" || /exam-intro|::instruction|::closing/.test(segment.groupId)) return false
     const firstPass = segments.filter((item): item is TtsSegment => item.type === "tts" && item.groupId === segment.groupId && !isQuestionRole(item) && !item.repeatOfUid && !isSecondPassSegment(item))
     return firstPass.length > 0
   }
@@ -1264,7 +1272,7 @@ export default function App() {
       const res = await fetch("/api/script/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, template, smart })
+        body: JSON.stringify({ text, template, smart, smartModel })
       })
       const rawText = await res.text()
       const json = (() => {
@@ -1299,24 +1307,6 @@ export default function App() {
     } finally {
       setAnalyzing(false)
     }
-  }
-
-  async function createAudioFromScript(text: string, mode: ApplyMode, smart = false) {
-    if (!credentialsComplete(providerConfig, credentials)) {
-      setComposeError(`一键生成前需要先配置${providerConfig?.label || "当前语音服务商"}。`)
-      setAutoWorkflow("error")
-      setWorkspaceView("services")
-      return
-    }
-    setAutoWorkflow("analyzing")
-    setComposeError("")
-    setLastExportUrl("")
-    const mapped = await analyzeScript(text, mode, smart)
-    if (!mapped?.some((item) => item.type === "tts" && item.text.trim())) {
-      setAutoWorkflow("error")
-      return
-    }
-    setAutoWorkflow("ready")
   }
 
   function groupSegments(groupId: string) {
@@ -1610,11 +1600,10 @@ export default function App() {
     }
   }
 
-  async function runQueue(queue: string[], options?: { autoCompose?: boolean }) {
+  async function runQueue(queue: string[]) {
     if (bulkRunning) return
     if (!queue.length) {
       setBulkProgressText("没有需要生成的片段")
-      if (options?.autoCompose) setAutoWorkflow("error")
       return
     }
     const needsCloudTts = segments.some((item) => {
@@ -1624,7 +1613,6 @@ export default function App() {
     if (needsCloudTts && !credentialsComplete(providerConfig, credentials)) {
       setBulkProgressText("")
       setComposeError(`生成前检查：${providerConfig?.label || "当前服务商"}尚未配置。请在「声音服务」连接账号。`)
-      if (options?.autoCompose) setAutoWorkflow("error")
       setWorkspaceView("services")
       return
     }
@@ -1655,9 +1643,6 @@ export default function App() {
     }
     setBulkRunning(false)
     setBulkProgressText(`${done}/${queue.length}${failed ? ` · 失败 ${failed}` : " · 完成"}`)
-    if (options?.autoCompose) {
-      setAutoWorkflow(failed || stopRef.current ? "error" : "compose-pending")
-    }
   }
 
   function generationQueue(input = segments) {
@@ -1669,8 +1654,8 @@ export default function App() {
     return [...queue]
   }
 
-  function generateAll(options?: { autoCompose?: boolean }) {
-    void runQueue(generationQueue(), options)
+  function generateAll() {
+    void runQueue(generationQueue())
   }
 
   function retryFailed() {
@@ -1862,9 +1847,7 @@ export default function App() {
     link.remove()
   }
 
-  async function composeAndDownload(options?: { auto?: boolean }) {
-    if (options?.auto) setAutoWorkflow("composing")
-    let completed = false
+  async function composeAndDownload() {
     setComposeRunning(true)
     setComposeError("")
     try {
@@ -1907,12 +1890,10 @@ export default function App() {
       if (!json.url) throw new Error("合成成功，但没有返回下载地址")
       setLastExportUrl(json.url)
       downloadExport(json.url, exportFormat)
-      completed = true
     } catch (err) {
       setComposeError(err instanceof Error ? err.message : "合成失败")
     } finally {
       setComposeRunning(false)
-      if (options?.auto) setAutoWorkflow(completed ? "done" : "error")
     }
   }
 
@@ -1952,26 +1933,6 @@ export default function App() {
     return !segments.some((candidate): candidate is TtsSegment => isTtsSegment(candidate) && candidate.uid === item.repeatOfUid && Boolean(candidate.audioId))
   })
 
-  useEffect(() => {
-    if (autoWorkflow !== "ready") return
-    const queue = generationQueue()
-    if (!queue.length) {
-      setComposeError("智能拆分完成，但没有找到可生成的朗读内容。请使用手工检查功能调整片段。")
-      setAutoWorkflow("error")
-      return
-    }
-    setAutoWorkflow("generating")
-    void runQueue(queue, { autoCompose: true })
-    // generationQueue/runQueue intentionally use the latest rendered segment snapshot.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoWorkflow, segments])
-
-  useEffect(() => {
-    if (autoWorkflow !== "compose-pending" || !canCompose) return
-    void composeAndDownload({ auto: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoWorkflow, canCompose])
-
   return (
     <div className={`appRoot studioShell view-${workspaceView}`}>
       <aside className="studioSidebar">
@@ -1979,8 +1940,8 @@ export default function App() {
         <div className="sidebarSectionLabel">音频制作</div>
         <nav className="studioNav" aria-label="工作区导航">
           <button className={workspaceView === "script" ? "active" : ""} onClick={() => setWorkspaceView("script")}><span>01</span>准备文稿</button>
-          <button className={workspaceView === "studio" ? "active" : ""} onClick={() => setWorkspaceView("studio")}><span>02</span>配音与试听{stats.tts ? <em>{stats.tts}</em> : null}</button>
-          <button className={workspaceView === "export" ? "active" : ""} onClick={() => setWorkspaceView("export")}><span>03</span>导出成品</button>
+          <button className={workspaceView === "studio" ? "active" : ""} onClick={() => setWorkspaceView("studio")}><span>02</span>录音生成{stats.tts ? <em>{stats.tts}</em> : null}</button>
+          <button className={workspaceView === "export" ? "active" : ""} onClick={() => setWorkspaceView("export")}><span>03</span>试听导出</button>
         </nav>
         <nav className="studioNav" aria-label="设置导航"><button className={workspaceView === "services" || workspaceView === "local" ? "active" : ""} onClick={() => setWorkspaceView("services")}><span>♫</span>声音服务<span className="navDot" /></button><button className={workspaceView === "settings" ? "active" : ""} onClick={() => setWorkspaceView("settings")}><span>⚙</span>制作设置</button></nav>
         <div className="sidebarBottom"><div className="sidebarAccount"><span>N</span><div>Newsun English<small>教师音频工作台</small></div></div></div>
@@ -1990,19 +1951,24 @@ export default function App() {
         provider={providerConfig}
         bulkRunning={bulkRunning}
         bulkProgressText={bulkProgressText}
-        onGenerateAll={generateAll}
-        onRetryFailed={retryFailed}
         onStopGenerateAll={stopGenerateAll}
-        hasPendingGeneration={hasPendingGeneration}
         stats={stats}
       />
 
-      {workspaceView === "local" ? <LocalTtsPage onBack={() => setWorkspaceView("services")} /> : workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} onLocalModels={() => setWorkspaceView("local")} /></div> : <div className="studioPageHeading"><div><h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "配音与试听" : workspaceView === "settings" ? "制作设置" : "导出成品"}</h1></div>{workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" onClick={() => setWorkspaceView("services")}><span className="voiceCardIcon">♫</span><span><small>当前声音服务</small><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置 · 点击测试或更换" : "尚未连接 · 点此开通"}</em></span><span>↗</span></button> : null}</div>}
+{workspaceView === "local" ? <LocalTtsPage onBack={() => setWorkspaceView("services")} /> : workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onBaseUrlChange={setBaseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} onLocalModels={() => setWorkspaceView("local")} /></div> : <div className="studioPageHeading"><div><h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "录音生成" : workspaceView === "settings" ? "制作设置" : "试听导出"}</h1></div>{workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" onClick={() => setWorkspaceView("services")}><span className="voiceCardIcon">♫</span><span><small>当前声音服务</small><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置 · 点击测试或更换" : "尚未连接 · 点此开通"}</em></span><span>↗</span></button> : null}</div>}
 
       {workspaceView === "script" && providerConfig && !providerConfig.serverConfigured && !credentialsComplete(providerConfig, credentials) ? <div className="setupBanner"><span>连接声音服务后即可生成音频。</span><button onClick={() => setWorkspaceView("services")}>选择声音服务 →</button></div> : null}
 
       {workspaceView === "export" ? <section className="exportPage">
         <div className="exportContent">
+      <div className="studioPreview" aria-label="全篇试听">
+        <span className="studioPreviewLabel">全篇试听</span>
+        <button className="studioPreviewButton" type="button" onClick={() => previewing ? stopPreview() : void startPreview(previewIndex)} disabled={!canCompose || !previewItems.length} aria-label={previewing ? "停止全篇试听" : "播放全篇试听"}>{previewing ? "■ 停止" : "▷ 播放"}</button>
+        {previewBuffering ? <span role="status">缓冲中…</span> : null}
+        <input type="range" min={0} max={Math.max(0, previewItems.length - 1)} step={1} value={Math.min(previewIndex, Math.max(0, previewItems.length - 1))} onChange={event => seekPreview(Number(event.target.value))} disabled={!canCompose || !previewItems.length} aria-label="全篇试听进度" />
+        <span className="studioPreviewTime">{formatTime(previewElapsedMs / 1000)} / {formatTime(totalPreviewMs / 1000)}</span>
+        {previewError ? <span className="inlineError" role="status">{previewError}</span> : null}
+      </div>
           <div className="exportStatus"><span aria-hidden="true">{canCompose ? "✓" : "◷"}</span><div><h2>{canCompose ? "音频已就绪" : "还有片段待完成"}</h2><p>{stats.tts ? `已生成 ${stats.generated} / ${stats.tts} 段 · 预计 ${stats.totalTime}` : "先添加文稿并生成语音。"}</p></div></div>
           <label className="field"><span className="label">文件格式</span><select value={exportFormat} onChange={e => setExportFormat(e.target.value === "wav" ? "wav" : "mp3")}><option value="mp3">MP3 · 日常播放</option><option value="wav">WAV · 后期编辑</option></select></label>
           <button className="btnPrimary exportMainButton" disabled={!canCompose || composeRunning} onClick={() => void composeAndDownload()}>{composeRunning ? "正在合成…" : "合成并下载 ↓"}</button>
@@ -2013,10 +1979,18 @@ export default function App() {
       </section> : null}
 
       <main className="workspace" aria-label="文稿与配音工作区" style={{ "--paste-pane-width": `${pastePaneWidth}px`, "--segment-pane-width": `${segmentPaneWidth}px` } as CSSProperties}>
+        {workspaceView === "studio" ? <div className="recordingToolbar" role="status">
+          <div><strong>{bulkRunning ? "正在生成录音" : canCompose ? "录音已全部完成" : "检查后，生成录音"}</strong><span>{bulkRunning ? bulkProgressText : canCompose ? "可以进入下一步试听了。" : `${stats.generated} / ${stats.tts} 段已完成 · 可随时调整文字与停顿`}</span></div>
+          <div className="recordingActions">{bulkRunning ? <button className="btn" onClick={stopGenerateAll}>停止生成</button> : canCompose ? <button className="btnPrimary" onClick={() => setWorkspaceView("export")}>进入试听导出 →</button> : <button className="btnPrimary" disabled={!hasPendingGeneration} onClick={generateAll}>{stats.generated ? "生成剩余录音" : "确认文稿，生成录音"}</button>}{stats.errors && !bulkRunning ? <button className="btn" onClick={retryFailed}>重试失败项</button> : null}</div>
+        </div> : null}
         <div className="pastePane">
           <BulkPaste
             analyzing={analyzing}
-            workflowStage={autoWorkflow}
+            examName={template.examName}
+            introText={template.introText ?? buildExamIntro(template.examName)}
+            onExamNameChange={examName => setTemplate(prev => ({ ...prev, school: "", schoolYear: "", semester: "", grade: "", examName, introText: buildExamIntro(examName), includeExamIntro: true }))}
+            onIntroTextChange={introText => setTemplate(prev => ({ ...prev, introText, includeExamIntro: true }))}
+            onExamModeChange={includeExamIntro => setTemplate(prev => ({ ...prev, includeExamIntro }))}
             hasSegments={segments.length > 0}
             scriptAssist={scriptAssist}
             analysisMessage={analysisMessage}
@@ -2024,8 +1998,7 @@ export default function App() {
             minorBreakMs={template.minorBreakMs}
             questionNumberGapMs={template.questionNumberGapMs}
             questionNumberStyle={template.questionNumberStyle}
-            onAnalyze={(text, mode, smart) => { void analyzeScript(text, mode, smart).then(() => setWorkspaceView("studio")) }}
-            onCreateAudio={createAudioFromScript}
+            onAnalyze={(text, mode, smart) => { void analyzeScript(text, mode, smart).then(result => { if (result) setWorkspaceView("studio") }) }}
             onApply={(parsed, mode) => {
             const mapped: Segment[] = linkRepeatedAudioSegments(parsed.map((item) => {
               const itemGroupId = "groupId" in item ? item.groupId : undefined
@@ -2104,9 +2077,7 @@ export default function App() {
               setMobileInspectPanel("editor")
             }}
             onReorder={reorder}
-            onAddTts={addTts}
-            onAddSilence={addSilence}
-            onAddMusic={addMusic}
+            onAdd={targetUid => { if (targetUid) setSelectedUid(targetUid); setShowAddSegment(true) }}
             onClearAll={clearAllSegments}
             voiceOptions={roleVoiceOptions}
             roleVoiceIds={roleVoiceIds}
@@ -2121,6 +2092,7 @@ export default function App() {
         </div>
 
         <div className={`editorStack mobileInspectPanel ${mobileInspectPanel === "editor" ? "mobileInspectActive" : ""}`}>
+          {selectedSegment ? <div className="editorContextBar"><div className="segmentNavigation"><button type="button" aria-label="上一个片段" disabled={segments[0]?.uid === selectedUid} onClick={() => selectAdjacentSegment(-1)}>←</button><span>片段 {segments.findIndex(item => item.uid === selectedUid) + 1} / {segments.length}</span><button type="button" aria-label="下一个片段" disabled={segments.at(-1)?.uid === selectedUid} onClick={() => selectAdjacentSegment(1)}>→</button></div><button type="button" className="btn" onClick={() => setShowAddSegment(true)}>＋ 在此片段后添加</button></div> : null}
           <SegmentEditor
             provider={provider}
             voiceOptions={roleVoiceOptions}
@@ -2130,11 +2102,11 @@ export default function App() {
             styleOptions={styles}
             stylePrompt={stylePrompt}
             contextPreview={geminiContextPreview}
-            groupSegments={selectedSegment?.type === "tts" && selectedSegment.groupId ? groupSegments(selectedSegment.groupId) : []}
+            groupSegments={provider === "google_gemini" && selectedSegment?.type === "tts" && selectedSegment.groupId ? groupSegments(selectedSegment.groupId) : []}
             segment={selectedSegment}
             onUpdate={updateSegment}
             onDelete={deleteSegment}
-            onGenerate={generateSegmentAudio}
+            onGenerate={uid => void generateSegmentAudio(uid, provider !== "google_gemini")}
             onGenerateSingle={(uid) => void generateSegmentAudio(uid, true)}
             onClearAudio={clearAudio}
             repeatControl={{ canUse: canRepeatSelectedGroup(selectedSegment), enabled: selectedSegment?.type === "tts" ? repeatEnabledForGroup(selectedSegment.groupId) : false }}
@@ -2145,16 +2117,13 @@ export default function App() {
         </div>
       </main>
 
-      {workspaceView === "studio" ? <div className="studioPreview" aria-label="全篇试听">
-        <span className="studioPreviewLabel">全篇试听</span>
-        <button className="studioPreviewButton" type="button" onClick={() => previewing ? stopPreview() : void startPreview(previewIndex)} disabled={!previewItems.length} aria-label={previewing ? "停止全篇试听" : "播放全篇试听"}>{previewing ? "■ 停止" : "▷ 播放"}</button>
-        {previewBuffering ? <span role="status">缓冲中…</span> : null}
-        <input type="range" min={0} max={Math.max(0, previewItems.length - 1)} step={1} value={Math.min(previewIndex, Math.max(0, previewItems.length - 1))} onChange={event => seekPreview(Number(event.target.value))} disabled={!previewItems.length} aria-label="全篇试听进度" />
-        <span className="studioPreviewTime">{formatTime(previewElapsedMs / 1000)} / {formatTime(totalPreviewMs / 1000)}</span>
-        {previewError ? <span className="inlineError" role="status">{previewError}</span> : null}
-      </div> : null}
+
+      {showAddSegment ? <AddSegmentDialog afterLabel={selectedSegment ? `插入到第 ${segments.findIndex(item => item.uid === selectedUid) + 1} 个片段之后` : "添加到文稿末尾"} onClose={() => setShowAddSegment(false)} onAdd={addChosenSegment} /> : null}
 
       {workspaceView === "settings" ? <SettingsPage
+        smartModel={smartModel}
+        onSmartModelChange={setSmartModel}
+        smartAvailable={Boolean(scriptAssist?.available)}
         providers={providers}
         provider={provider}
         onOpenServices={() => setWorkspaceView("services")}

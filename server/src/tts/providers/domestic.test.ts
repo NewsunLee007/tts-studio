@@ -62,12 +62,12 @@ test("Qwen-Audio 3.1 sends the documented workspace URL and singular instruction
   assert.equal(audio.bytes.toString(), "hi")
 })
 
-test("Qwen unsupported model moves directly to the next model", async (t) => {
+for (const status of [400, 404]) test(`Qwen unsupported model (${status}) moves directly to the next model`, async (t) => {
   const models: string[] = []
   t.mock.method(globalThis, "fetch", async (_url, init) => {
     const body = JSON.parse(String(init?.body))
     models.push(body.model)
-    return models.length === 1 ? new Response("Model not exist", { status: 400 }) : Response.json({ output: { audio: { data: "aGk=" } } })
+    return models.length === 1 ? new Response('{"code":"InvalidParameter","message":"Model not exist."}', { status }) : Response.json({ output: { audio: { data: "aGk=" } } })
   })
   const audio = await dashscopeTts({ credentials: { apiKey: "test" }, text: "Hello", model: "qwen3-tts-instruct-flash", voice: "Neil" })
   assert.deepEqual(models, ["qwen3-tts-instruct-flash", "qwen3-tts-flash"])
@@ -75,6 +75,8 @@ test("Qwen unsupported model moves directly to the next model", async (t) => {
 })
 
 test("provider failures include an actionable explanation", () => {
+  assert.match(explainProviderError('DashScope TTS error (404): {"code":"InvalidParameter","message":"Model not exist."}'), /模型不可用|地域/)
+  assert.doesNotMatch(explainProviderError('InvalidParameter: Model not exist.'), /音色与模型不兼容/)
   assert.match(explainProviderError("HTTP 401 invalid API key"), /密钥|Key/)
   assert.match(explainProviderError("HTTP 429 rate limit"), /频率|稍后|限流/)
   assert.match(explainProviderError("TimeoutError"), /超时/)

@@ -5,6 +5,7 @@ export type ExamTemplate = {
   schoolYear?: string
   semester?: string
   examName?: string
+  introText?: string
   subject?: string
   grade?: string
   examType?: string
@@ -616,6 +617,7 @@ function parseStructuredExamScript(input: string, includeQuestionNumbers: boolea
 }
 
 function examIntro(template: ExamTemplate) {
+  if (template.introText?.trim()) return template.introText.trim()
   const year = template.schoolYear || ""
   const semester = template.semester || ""
   const examName = template.examName || template.examType || ""
@@ -751,7 +753,10 @@ export function analyzeExamScript(input: string, template: ExamTemplate): Analyz
     segments.push({ type: "silence", durationMs: 1200, label: "介绍间隔", groupId })
   }
 
-  const draft = parseStructuredExamScript(input, template.includeQuestionNumbers !== false, {
+  const intro = template.includeExamIntro ? examIntro(template) : ""
+  const source = intro && input.trimStart().replace(/^NARRATOR:\s*/i, "").startsWith(intro)
+    ? input.trimStart().replace(/^NARRATOR:\s*/i, "").slice(intro.length).trimStart() : input
+  const draft = parseStructuredExamScript(source, template.includeQuestionNumbers !== false, {
     majorBreakMs: template.majorBreakMs,
     minorBreakMs: template.minorBreakMs,
     questionNumberGapMs: template.questionNumberGapMs,

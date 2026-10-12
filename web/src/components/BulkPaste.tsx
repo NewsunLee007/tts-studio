@@ -8,9 +8,12 @@ type InputMode = ParseMode | "exam"
 type Props = {
   onApply: (segments: Array<ParsedSegment | ExamDraftSegment>, mode: ApplyMode) => void
   onAnalyze: (text: string, mode: ApplyMode, smart: boolean) => void
-  onCreateAudio: (text: string, mode: ApplyMode, smart: boolean) => void
   analyzing: boolean
-  workflowStage: "idle" | "analyzing" | "ready" | "generating" | "compose-pending" | "composing" | "done" | "error"
+  examName: string
+  onExamNameChange: (value: string) => void
+  introText: string
+  onIntroTextChange: (value: string) => void
+  onExamModeChange: (enabled: boolean) => void
   hasSegments: boolean
   scriptAssist?: { available: boolean; model: string; label: string }
   analysisMessage?: string
@@ -32,36 +35,31 @@ export function BulkPaste(props: Props) {
     if (mode === "exam") return parseExamScript(text, { majorBreakMs: props.majorBreakMs, minorBreakMs: props.minorBreakMs, questionNumberGapMs: props.questionNumberGapMs, questionNumberStyle: props.questionNumberStyle })
     return parseSegments(text, mode)
   }, [text, mode, props.majorBreakMs, props.minorBreakMs, props.questionNumberGapMs, props.questionNumberStyle])
-  const workflowRunning = ["analyzing", "ready", "generating", "compose-pending", "composing"].includes(props.workflowStage)
-  const workflowLabel: Record<Props["workflowStage"], string> = {
-    idle: "一键生成完整音频",
-    analyzing: "正在智能识别文稿…",
-    ready: "拆分完成，准备生成…",
-    generating: "正在逐段生成语音…",
-    "compose-pending": "语音完成，准备合成…",
-    composing: "正在合成并下载…",
-    done: "已生成，可再次制作",
-    error: "重试一键生成"
-  }
+  const workflowRunning = props.analyzing
+  const missingExamName = mode === "exam" && (!props.examName.trim() || !props.introText.trim())
 
   return (
     <section className={`rightCard bulkPasteCard ${props.hasSegments ? "bulkPasteHasSegments" : ""}`}>
       <div className="bulkHero">
         <div>
           <span className="bulkEyebrow">01 / YOUR SCRIPT</span>
-          <h2 className="bulkTitle">放入你的文稿</h2>
+          <h2 className="bulkTitle">考试信息与文稿</h2>
           <div className="cardSub">直接粘贴完整内容，题号、对话与停顿交给工作台。</div>
         </div>
         <span className="bulkAiState">{props.scriptAssist?.available ? "DeepSeek 智能识别" : "本地规则识别"}</span>
       </div>
 
 
-      <div className="scriptTools"><span>文稿编辑器</span><button type="button" className="textButton" disabled={workflowRunning} onClick={() => setText("第一节：听下面一段对话，对话读两遍。\n1. M: Hi, Emma. What are you going to do this weekend?\nW: I'm going to the library. Would you like to come with me?\nM: Sure. What time shall we meet?\nW: Let's meet at nine outside the school gate.\n听力测试到此结束。")}>示例文稿 ↗</button></div>
+      <div className="scriptKind"><button type="button" aria-pressed={mode === "exam"} onClick={() => { setMode("exam"); props.onExamModeChange(true) }}>考试听力</button><button type="button" aria-pressed={mode !== "exam"} onClick={() => { setMode("blank"); props.onExamModeChange(false) }}>普通文稿</button></div>
+      {mode === "exam" ? <div className="examTitleFields"><label className="field"><span className="label">考试名称 <span aria-hidden="true">*</span></span><input aria-label="考试名称" required value={props.examName} disabled={workflowRunning} onChange={event => props.onExamNameChange(event.target.value)} placeholder="瑞安市新纪元实验学校 2025学年第一学期七年级 期中考试" /></label>
+        <label className="field"><span className="label">开场播报 · 可修改</span><textarea aria-label="开场播报" rows={2} value={props.introText} disabled={workflowRunning} onChange={event => props.onIntroTextChange(event.target.value)} placeholder="填写考试名称后自动生成" /></label></div> : null}
+      <div className="scriptTools"><span>听力原文</span><button type="button" className="textButton" disabled={workflowRunning} onClick={() => setText("第一节：听下面一段对话，对话读两遍。\n1. M: Hi, Emma. What are you going to do this weekend?\nW: I'm going to the library. Would you like to come with me?\nM: Sure. What time shall we meet?\nW: Let's meet at nine outside the school gate.\n听力测试到此结束。")}>示例文稿 ↗</button></div>
       <textarea
         ref={textareaRef}
         className="pasteArea"
         aria-label="完整文稿"
         value={text}
+        disabled={workflowRunning}
         onChange={(e) => setText(e.target.value)}
         placeholder={examPlaceholder}
         rows={10}
@@ -72,24 +70,16 @@ export function BulkPaste(props: Props) {
         <button
           className="btnPrimary bulkCreateButton"
           type="button"
-          onClick={() => props.onCreateAudio(text, applyMode, Boolean(props.scriptAssist?.available))}
-          disabled={!text.trim() || workflowRunning}
+          onClick={() => mode === "exam" ? props.onAnalyze(text, applyMode, Boolean(props.scriptAssist?.available)) : props.onApply(parsed, applyMode)}
+          disabled={!text.trim() || missingExamName || workflowRunning}
         >
-          <span aria-hidden="true">▶</span>
-          <span>{workflowLabel[props.workflowStage]}</span>
-        </button>
-        <button
-          className="btn bulkReviewButton"
-          type="button"
-          onClick={() => props.onAnalyze(text, applyMode, Boolean(props.scriptAssist?.available))}
-          disabled={!text.trim() || props.analyzing || workflowRunning}
-        >
-          拆分并检查 →
+          <span>{props.analyzing ? "正在拆分…" : "一键拆分，进入检查 →"}</span>
         </button>
         <button className="btnGhost bulkClearButton" type="button" onClick={() => setText("")} disabled={!text.trim() || workflowRunning}>
           清空
         </button>
       </div>
+      <p className="settingsHelp">先检查文字、声音与停顿，再生成录音。</p>
 
       {props.analysisMessage ? <div className="analysisMessage">{props.analysisMessage}</div> : null}
 
@@ -126,7 +116,7 @@ export function BulkPaste(props: Props) {
             className="btn"
             type="button"
             onClick={() => mode === "exam" ? props.onAnalyze(text, applyMode, false) : props.onApply(parsed, applyMode)}
-            disabled={!parsed.length || props.analyzing}
+            disabled={!parsed.length || missingExamName || props.analyzing}
           >
             {mode === "exam" ? "本地快速拆分" : "简单拆分"}
           </button>
@@ -135,7 +125,7 @@ export function BulkPaste(props: Props) {
         <div className="cardGrid bulkControlsGrid compactControls">
           <label className="field">
             <div className="label">拆分规则</div>
-            <select aria-label="拆分规则" value={mode} onChange={(e) => setMode(e.target.value as InputMode)}>
+            <select aria-label="拆分规则" value={mode} onChange={(e) => { setMode(e.target.value as InputMode); props.onExamModeChange(e.target.value === "exam") }}>
               <option value="exam">听力试卷（推荐）</option>
               <option value="blank">按空行分段</option>
               <option value="line">每行一段</option>

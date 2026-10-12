@@ -125,6 +125,7 @@ export function SegmentEditor(props: Props) {
             </label>
           </div>
 
+          <div className="durationPresets">{[1, 3, 5, 10].map(seconds => <button type="button" key={seconds} aria-pressed={seg.durationMs === seconds * 1000} onClick={() => props.onUpdate(seg.uid, { durationMs: seconds * 1000 })}>{seconds} 秒</button>)}</div>
           <div className="cardActions">
             <button className="btnDanger" type="button" onClick={() => props.onDelete(seg.uid)}>
               删除
@@ -232,7 +233,7 @@ export function SegmentEditor(props: Props) {
     <section className="rightPane">
       <div className="rightCard inspectorCard">
         <div className="cardHead">
-          <h2 className="cardTitle">编辑片段</h2>
+          <h2 className="cardTitle">{segmentRoleLabel(seg)}</h2>
           <div className="cardSub">{seg.role ? `朗读角色：${segmentRoleLabel(seg)}` : seg.label ? `朗读人：${seg.label}` : "可单独调整本片段的音色和风格"}</div>
         </div>
 
@@ -298,9 +299,7 @@ export function SegmentEditor(props: Props) {
           </div>
         ) : null}
 
-        <details className="segmentAdvanced">
-          <summary>音色与高级调整</summary>
-          <div className="cardGrid">
+        <div className="segmentVoiceChoice">
             <label className="field">
             <div className="label">本片段音色</div>
             <select
@@ -315,7 +314,10 @@ export function SegmentEditor(props: Props) {
               ))}
             </select>
             </label>
-
+        </div>
+        <details className="segmentAdvanced">
+          <summary>高级调整</summary>
+          <div className="cardGrid">
             <label className="field">
             <div className="label">风格预设</div>
             <select

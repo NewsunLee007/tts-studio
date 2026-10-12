@@ -7,6 +7,13 @@ const source = `第一节：听下面一段对话。
 M: Good morning.
 W: Good morning.`
 
+test("reviewed introduction is used once and preserves the remaining exam script", () => {
+  const introText = "这里是瑞安市新纪元实验学校 2025学年第一学期七年级 期中考试英语听力测试。"
+  const segments = analyzeExamScript(`${introText}\n${source}`, { includeExamIntro: true, introText })
+  assert.equal(segments.filter(item => item.type === "tts" && item.text === introText).length, 1)
+  assert.ok(segments.some(item => item.type === "tts" && item.text.includes("Good morning.")))
+})
+
 test("does not add template audio when the teacher did not opt in", () => {
   const segments = analyzeExamScript(source, {})
 

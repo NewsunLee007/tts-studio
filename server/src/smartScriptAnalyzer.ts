@@ -16,7 +16,29 @@ type SmartScriptPayload = {
   summary?: unknown
 }
 
-const DEFAULT_MODEL = "deepseek-v4-flash"
+const DEFAULT_MODEL = "deepseek-flash"
+const retiredModels = new Set(["deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-pro"])
+
+export function resolveDeepSeekModel(value = DEFAULT_MODEL) {
+  const model = value.trim()
+  if (!/^deepseek-[a-zA-Z0-9.-]{1,80}$/.test(model)) throw new Error("请选择有效的 DeepSeek 模型")
+  return retiredModels.has(model) ? DEFAULT_MODEL : model
+}
+
+export async function listDeepSeekModels() {
+  const apiKey = process.env.DEEPSEEK_API_KEY
+  if (!apiKey) throw new Error("DeepSeek 尚未由管理员配置")
+  const response = await fetch("https://api.deepseek.com/models", {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(15000)
+  })
+  if (!response.ok) throw new Error(`获取 DeepSeek 模型失败（${response.status}）`)
+  const json = await response.json() as { data?: Array<{ id: string; name?: string; input_modalities?: string[] }> }
+  const models = (json.data || []).filter(item => /^deepseek-[a-zA-Z0-9.-]{1,80}$/.test(item.id) && !retiredModels.has(item.id) && (!item.input_modalities || item.input_modalities.includes("text")))
+    .map(item => ({ id: item.id, label: item.id === DEFAULT_MODEL ? "DeepSeek V4.1 Flash（推荐）" : item.name || item.id }))
+  if (!models.some(item => item.id === DEFAULT_MODEL)) models.unshift({ id: DEFAULT_MODEL, label: "DeepSeek V4.1 Flash（推荐）" })
+  return models
+}
 
 function compactForComparison(value: string) {
   return value
@@ -52,8 +74,8 @@ export function verifySmartNormalization(source: string, normalizedText: string)
 export function smartScriptAssistStatus(env: NodeJS.ProcessEnv = process.env) {
   return {
     available: Boolean(env.DEEPSEEK_API_KEY),
-    model: env.DEEPSEEK_MODEL || DEFAULT_MODEL,
-    label: "DeepSeek V4 智能拆分"
+    model: resolveDeepSeekModel(env.DEEPSEEK_MODEL || DEFAULT_MODEL),
+    label: "DeepSeek V4.1 智能识别"
   }
 }
 
@@ -67,13 +89,14 @@ function documentType(value: unknown): SmartScriptAnalysis["documentType"] {
   return "general"
 }
 
-export async function normalizeScriptWithDeepSeek(source: string): Promise<SmartScriptAnalysis> {
+export async function normalizeScriptWithDeepSeek(source: string, selectedModel?: string): Promise<SmartScriptAnalysis> {
   const apiKey = process.env.DEEPSEEK_API_KEY
   if (!apiKey) throw new Error("DeepSeek 智能拆分尚未由管理员配置")
 
-  const model = process.env.DEEPSEEK_MODEL || DEFAULT_MODEL
+  const model = resolveDeepSeekModel(selectedModel || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL)
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
+    signal: AbortSignal.timeout(60000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"

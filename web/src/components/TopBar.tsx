@@ -5,10 +5,7 @@ type Props = {
   provider?: ProviderConfig
   bulkRunning: boolean
   bulkProgressText: string
-  onGenerateAll: () => void
-  onRetryFailed: () => void
   onStopGenerateAll: () => void
-  hasPendingGeneration: boolean
   stats: {
     total: number
     tts: number
@@ -43,7 +40,7 @@ export function TopBar(props: Props) {
           </div>
         </div>
 
-        {props.workspaceView === "studio" || props.bulkRunning ? <div className="projectPulse" aria-live="polite">
+        {props.bulkRunning && props.workspaceView !== "studio" ? <div className="projectPulse" aria-live="polite">
           <div className="projectPulseHead">
             <span className="providerBadge">{providerLabel}</span>
             <strong>{statusText}</strong>
@@ -54,15 +51,7 @@ export function TopBar(props: Props) {
         </div> : null}
 
         <div className="topbarActions">
-          {props.workspaceView === "studio" ? <button className="btnPrimary topbarGenerate" type="button" onClick={props.onGenerateAll} disabled={props.bulkRunning || !props.hasPendingGeneration}>
-            {props.bulkRunning ? "正在生成…" : props.hasPendingGeneration ? `生成剩余 ${Math.max(0, props.stats.tts - props.stats.generated)} 段` : props.stats.total ? "语音已就绪" : "等待文稿"}
-          </button> : null}
-          {props.workspaceView === "studio" && props.stats.errors ? (
-            <button className="btn" type="button" onClick={props.onRetryFailed} disabled={props.bulkRunning}>
-              重试失败项
-            </button>
-          ) : null}
-          {props.bulkRunning ? <button className="btnGhost" type="button" onClick={props.onStopGenerateAll}>停止</button> : null}
+          {props.bulkRunning && props.workspaceView !== "studio" ? <button className="btnGhost" type="button" onClick={props.onStopGenerateAll}>停止</button> : null}
         </div>
       </div>
     </header>

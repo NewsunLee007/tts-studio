@@ -28,7 +28,7 @@ import {
   type VoicePreset
 } from "./presets.js"
 import { analyzeExamScript, analyzeGeneralScript, detectScriptDocumentType, type ExamTemplate } from "./scriptAnalyzer.js"
-import { normalizeScriptWithDeepSeek, smartScriptAssistStatus } from "./smartScriptAnalyzer.js"
+import { listDeepSeekModels, normalizeScriptWithDeepSeek, smartScriptAssistStatus } from "./smartScriptAnalyzer.js"
 import { dashscopeTts } from "./tts/providers/dashscope.js"
 import { googleTts } from "./tts/providers/google.js"
 import { googleGeminiDialogueTts, googleGeminiTts } from "./tts/providers/googleGemini.js"
@@ -87,6 +87,7 @@ type AnalyzeBody = {
   text?: string
   template?: ExamTemplate
   smart?: boolean
+  smartModel?: string
 }
 
 type GeminiDialogueBody = {
@@ -608,6 +609,14 @@ export async function createApp() {
     }
   })
 
+  app.get("/api/script/models", async (_req, res) => {
+    try {
+      res.json({ models: await listDeepSeekModels() })
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? error.message : "获取模型失败" })
+    }
+  })
+
   app.post("/api/script/analyze", async (req, res) => {
     const body = req.body as AnalyzeBody
     const text = typeof body.text === "string" ? body.text : ""
@@ -616,7 +625,7 @@ export async function createApp() {
       return
     }
     if (!body.smart) {
-      const documentType = detectScriptDocumentType(text)
+      const documentType = body.template?.includeExamIntro ? "exam" : detectScriptDocumentType(text)
       res.json({
         segments: documentType === "exam" ? analyzeExamScript(text, body.template || {}) : analyzeGeneralScript(text, documentType),
         analysis: { mode: "local", documentType, summary: "已使用本地规则拆分" }
@@ -625,8 +634,8 @@ export async function createApp() {
     }
 
     try {
-      const smart = await normalizeScriptWithDeepSeek(text)
-      const documentType = smart.documentType === "general" ? detectScriptDocumentType(smart.normalizedText) : smart.documentType
+      const smart = await normalizeScriptWithDeepSeek(text, typeof body.smartModel === "string" ? body.smartModel : undefined)
+      const documentType = body.template?.includeExamIntro ? "exam" : smart.documentType === "general" ? detectScriptDocumentType(smart.normalizedText) : smart.documentType
       res.json({
         segments: documentType === "exam" ? analyzeExamScript(smart.normalizedText, body.template || {}) : analyzeGeneralScript(smart.normalizedText, documentType),
         analysis: {
@@ -637,7 +646,7 @@ export async function createApp() {
         }
       })
     } catch (error) {
-      const documentType = detectScriptDocumentType(text)
+      const documentType = body.template?.includeExamIntro ? "exam" : detectScriptDocumentType(text)
       res.json({
         segments: documentType === "exam" ? analyzeExamScript(text, body.template || {}) : analyzeGeneralScript(text, documentType),
         analysis: {

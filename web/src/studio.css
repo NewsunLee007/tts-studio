@@ -263,3 +263,65 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
   .studioShell .speedCalibratorHead { display: block; }
   .studioShell .speedCalibratorHead strong { display: inline-block; margin-top: 10px; }
 }
+
+/* Script review and recording stay in a single, contextual workspace. */
+.scriptKind, .addTypeChoices { display: flex; gap: 6px; margin: 20px 0; }
+.scriptKind button, .addTypeChoices button { border: 1px solid #dce6df; border-radius: 7px; background: #fff; padding: 10px 16px; color: #667c73; font: inherit; font-size: 13px; cursor: pointer; }
+.scriptKind button[aria-pressed=true], .addTypeChoices button.active { background: #e8f2eb; border-color: #8db49d; color: #236c5b; }
+.examTitleFields { display: grid; gap: 15px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.examTitleFields textarea { resize: vertical; min-height: 76px; font: inherit; line-height: 1.8; width: 100%; box-sizing: border-box; }
+.studioShell .examTitleFields .field { margin: 0; }
+.recordingToolbar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 20px 22px; border: 1px solid #dce6df; border-radius: 10px; background: #fff; }
+.recordingToolbar strong { font-size: 16px; color: #243d36; display: block; }
+.recordingToolbar span { font-size: 12px; color: #7d8e85; display: block; margin-top: 7px; }
+.recordingActions { display: flex; gap: 8px; flex-shrink: 0; }
+.editorContextBar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; background: #f1f6f2; border: 1px solid #dce6df; border-radius: 10px; margin-bottom: 10px; }
+.editorContextBar span { font-size: 12px; color: #6e8378; }
+.editorContextBar .btn { font-size: 12px; min-height: 38px; }
+.segmentNavigation { display: flex; align-items: center; gap: 10px; }
+.segmentNavigation button { border: 0; background: transparent; color: #36735b; min-width: 32px; min-height: 38px; font-size: 18px; cursor: pointer; }
+.segmentNavigation button:disabled { opacity: .3; cursor: default; }
+.segmentVoiceChoice { margin-top: 16px; }
+.view-studio .leftTitle small { font-size: 11px; color: #839489; font-weight: 400; margin-left: 5px; }
+.view-studio .listItem .summary { white-space: normal; line-height: 1.8; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.insertAfterButton { display: block; border: 0; border-top: 1px dashed #cadccf; padding: 12px 0 2px; margin-top: 12px; width: 100%; background: none; color: #36735b; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.view-studio .segmentPane { align-self: start; position: sticky; top: 18px; }
+.view-studio .editorStack { min-width: 0; }
+.view-studio .listItem { cursor: pointer; }
+.view-studio .listItemActive { background: #edf5ef; border-color: #9bbfa7; }
+.view-studio .mobileInspectTabs { display: none; }
+.studioShell.view-studio .brand { display: flex; }
+.studioShell .exportContent .studioPreview { position: static; width: 100%; box-sizing: border-box; margin: 0 0 25px; padding: 18px; background: #f3f7f3; border: 1px solid #dce6df; border-radius: 9px; flex-wrap: wrap; }
+.studioShell .exportContent .studioPreview input { flex: 1; min-width: 100px; }
+.addSegmentDialog { width: min(440px, calc(100vw - 40px)); padding: 26px; box-sizing: border-box; border: 1px solid #dce6df; border-radius: 14px; color: #243d36; background: #fff; box-shadow: 0 24px 90px #132c2930; }
+.addSegmentDialog::backdrop { background: #152c2770; backdrop-filter: blur(3px); }
+.addDialogHead, .addDialogActions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.addDialogHead h2 { font-size: 20px; margin: 0; }
+.addDialogHead button { font-size: 26px; min-width: 36px; min-height: 36px; }
+.addSegmentDialog .field { margin: 16px 0; display: block; }
+.addSegmentDialog .label { display: block; margin-bottom: 8px; font-size: 13px; }
+.addSegmentDialog input, .addSegmentDialog textarea { width: 100%; box-sizing: border-box; border: 1px solid #d6e2da; border-radius: 7px; padding: 12px; font: inherit; color: inherit; background: #f9fbf9; }
+.addDialogActions { justify-content: flex-end; margin-top: 24px; }
+.addTypeChoices button { flex: 1; }
+.durationPresets { display: flex; gap: 8px; margin-top: 10px; }
+.durationPresets button { flex: 1; padding: 9px 0; border: 1px solid #dce6df; border-radius: 6px; background: #fff; color: #537663; cursor: pointer; }
+.durationPresets button[aria-pressed=true] { background: #e8f2eb; border-color: #8db49d; }
+@media(max-width:1100px) {
+  .view-studio .workspace { grid-template-columns: minmax(0, 1fr); }
+  .view-studio .mobileInspectTabs { display: flex; grid-column: 1 / -1; width: 100%; box-sizing: border-box; margin: 0; }
+  .view-studio .mobileInspectPanel { display: none; }
+  .view-studio .mobileInspectActive { display: block; }
+  .view-studio .segmentPane { position: static; }
+  .studioShell .mobileInspectTab { flex: 1; padding: 12px; border-radius: 6px; color: #637b6c; background: #f1f5f1; border: 1px solid #dce6df; }
+  .studioShell .mobileInspectTabActive { background: #e2efe5; color: #236c5b; border-color: #a4c2ad; }
+  .recordingToolbar { flex-wrap: wrap; padding: 18px; }
+  .recordingActions { flex-wrap: wrap; }
+}
+@media(max-width:760px) {
+  .recordingActions { width: 100%; }
+  .recordingActions .btnPrimary { flex: 1; }
+  .editorContextBar { padding: 10px 12px; }
+  .studioShell .exportContent .studioPreview { padding: 14px; gap: 12px; }
+  .studioShell .exportContent .studioPreview input { order: 4; flex-basis: 100%; }
+  .examTitleFields input, .examTitleFields textarea { font-size: 16px; }
+}

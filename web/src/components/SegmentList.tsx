@@ -6,9 +6,7 @@ type Props = {
   selectedUid: string | null
   onSelect: (uid: string) => void
   onReorder: (fromUid: string, toUid: string) => void
-  onAddTts: () => void
-  onAddSilence: () => void
-  onAddMusic: () => void
+  onAdd: (afterUid?: string) => void
   onClearAll: () => void
   voiceOptions: VoicePreset[]
   roleVoiceIds: Record<VoiceRoleKey, string>
@@ -19,7 +17,7 @@ function summarize(seg: Segment) {
   if (seg.type === "silence") return `${seg.label ? `${seg.label} · ` : ""}无声 ${formatDuration(seg.durationMs)}`
   if (seg.type === "music") return `${seg.label || "导入音乐"} · ${formatDuration(musicDurationMs(seg.presetId, seg.durationMs))}`
   const text = seg.text.trim().replace(/\s+/g, " ")
-  return text.length > 44 ? text.slice(0, 44) + "…" : text || "（空文本）"
+  return text.length > 90 ? text.slice(0, 90) + "…" : text || "（空文本）"
 }
 
 function musicDurationMs(presetId: string, fallbackMs: number) {
@@ -129,6 +127,8 @@ function groupKind(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "silence")) return { label: "停顿", className: "badgeSilence" }
   if (group.segments.every((s) => s.type === "music")) return { label: "音乐", className: "badgeMusic" }
   const tts = group.segments.filter(isTts)
+  if (tts.length === 1 && tts[0].role === "male") return { label: "男声", className: "badgeTts" }
+  if (tts.length === 1 && tts[0].role === "female") return { label: "女声", className: "badgeTts" }
   const nonQuestion = tts.filter((s) => !isQuestion(s))
   if (nonQuestion.some(isIntro)) return { label: "导入", className: "badgeIntro" }
   if (!nonQuestion.length && tts.length) {
@@ -144,6 +144,7 @@ function groupTitle(group: GeminiGroup) {
   if (group.segments.every((s) => s.type === "silence")) return summarize(group.segments[0])
   if (group.segments.every((s) => s.type === "music")) return summarize(group.segments[0])
   const tts = group.segments.filter(isTts)
+  if (tts.length === 1) return summarize(tts[0])
   if (tts.some(isIntro)) return "听力导入"
   const rangeTitle = rangeTitleFromGroupId(group.groupId)
   if (rangeTitle) return rangeTitle
@@ -156,6 +157,7 @@ function groupTitle(group: GeminiGroup) {
 }
 
 function groupSummary(group: GeminiGroup) {
+  if (group.segments.length === 1) return ""
   if (group.segments.every((s) => s.type === "silence") || group.segments.every((s) => s.type === "music")) return ""
   const tts = group.segments.filter(isTts).filter((s) => !isQuestion(s) && !s.repeatOfUid && s.status !== "skipped")
   if (!tts.length) return ""
@@ -196,7 +198,11 @@ function roleCount(segments: Segment[], role: VoiceRoleKey) {
 }
 
 export function SegmentList(props: Props) {
-  const groups = groupForGemini(props.segments)
+  const groups = groupForGemini(props.segments.map(segment => {
+    if (segment.type !== "tts") return segment
+    const source = segment.repeatOfUid ? props.segments.find(item => item.uid === segment.repeatOfUid) : undefined
+    return { ...segment, groupId: undefined, audioId: segment.audioId || (source?.type === "tts" ? source.audioId : undefined) }
+  }))
   const roleRules: Array<{ id: VoiceRoleKey; label: string }> = [
     { id: "narrator", label: "中文说明" },
     { id: "question", label: "英文题号" },
@@ -207,17 +213,11 @@ export function SegmentList(props: Props) {
     <aside className="leftPane">
       <div className="leftHead">
         <div>
-          <h2 className="leftTitle">朗读顺序</h2>
+          <h2 className="leftTitle">录音脚本 <small>{props.segments.length} 段</small></h2>
         </div>
         <div className="leftActions">
-          <button className="btnGhost" type="button" onClick={props.onAddTts}>
-            + 朗读
-          </button>
-          <button className="btnGhost" type="button" onClick={props.onAddSilence}>
-            + 无声
-          </button>
-          <button className="btnGhost" type="button" onClick={props.onAddMusic}>
-            + 音乐
+          <button className="btnGhost" type="button" onClick={() => props.onAdd()}>
+            ＋ 添加片段
           </button>
           <button className="btnGhost" type="button" onClick={props.onClearAll} disabled={!props.segments.length}>
             清空
@@ -255,7 +255,7 @@ export function SegmentList(props: Props) {
         <div className="roleRulesHint">应用到当前及后续同类片段。</div>
       </details>
 
-      <div className="list" role="listbox" aria-label="segments">
+      <div className="list" role="list" aria-label="录音片段">
         {groups.map((group, idx) => {
           const selected = group.segments.some((seg) => seg.uid === props.selectedUid)
           const cls = selected ? "listItem listItemActive" : "listItem"
@@ -264,17 +264,18 @@ export function SegmentList(props: Props) {
             <div
               key={group.key}
               className={cls}
-              role="option"
-              aria-selected={selected}
+              role="listitem"
+              aria-current={selected ? "true" : undefined}
               tabIndex={0}
               onClick={() => props.onSelect(group.containerUid)}
               onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return
                 if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onSelect(group.containerUid) }
               }}
             >
               <div className="liTop">
                 <div className="liIndex">#{idx + 1}</div>
-                <div className={`badge ${kind.className}`}>{kind.label}</div>
+                <div className={`badge ${kind.className}`}>{kind.label}{group.segments[0]?.type === "tts" && group.segments[0].repeatOfUid ? " · 重读" : ""}</div>
                 <div className={`status ${groupStatusTone(group)}`}>{groupStatusLabel(group)}</div>
               </div>
               <div className="liMain">
@@ -285,6 +286,7 @@ export function SegmentList(props: Props) {
                   <span className="summary">{groupSummary(group)}</span>
                 </div>
               ) : null}
+              {selected ? <button className="insertAfterButton" type="button" onClick={event => { event.stopPropagation(); props.onAdd(group.containerUid) }}>＋ 在此后添加</button> : null}
             </div>
           )
         })}

@@ -5,6 +5,9 @@ type Props = {
   providers: ProviderConfig[]
   provider: ProviderId
   onOpenServices: () => void
+  smartModel: string
+  onSmartModelChange: (value: string) => void
+  smartAvailable: boolean
   modelId: string
   onModelIdChange: (value: string) => void
   voiceId: string
@@ -43,12 +46,13 @@ type Props = {
   onStylePromptChange: (value: string) => void
 }
 
-type TabId = "voice" | "exam" | "strategy" | "advanced"
+type TabId = "voice" | "exam" | "strategy" | "smart" | "advanced"
 
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: "voice", label: "声音" },
   { id: "strategy", label: "发音与语速" },
   { id: "exam", label: "停顿与题号" },
+  { id: "smart", label: "智能识别" },
   { id: "advanced", label: "高级" }
 ]
 
@@ -59,6 +63,24 @@ function secondsFromMs(value: number | undefined, fallback: number) {
 
 export function SettingsPage(props: Props) {
   const [active, setActive] = useState<TabId>("voice")
+  const [smartModels, setSmartModels] = useState([{ id: "deepseek-flash", label: "DeepSeek V4.1 Flash（推荐）" }])
+  const [smartCatalogState, setSmartCatalogState] = useState<"idle" | "loading" | "done" | "error">("idle")
+  const [smartCatalogMessage, setSmartCatalogMessage] = useState("")
+  async function refreshSmartModels() {
+    setSmartCatalogState("loading")
+    setSmartCatalogMessage("")
+    try {
+      const response = await fetch("/api/script/models", { signal: AbortSignal.timeout(30000) })
+      const json = await response.json() as { models?: Array<{ id: string; label: string }>; error?: string }
+      if (!response.ok || !json.models?.length) throw new Error(json.error || "暂无可用模型")
+      setSmartModels(json.models)
+      setSmartCatalogState("done")
+      setSmartCatalogMessage("已更新官方可用模型。")
+    } catch (error) {
+      setSmartCatalogState("error")
+      setSmartCatalogMessage(error instanceof Error ? error.message : "更新失败，请稍后重试。")
+    }
+  }
   const [draftSpeedMultiplier, setDraftSpeedMultiplier] = useState(props.speedMultiplier)
   const [englishWordsPerMinute, setEnglishWordsPerMinute] = useState(props.template.englishWordsPerMinute || 118)
   const [chineseCharsPerMinute, setChineseCharsPerMinute] = useState(props.template.chineseCharsPerMinute || 230)
@@ -129,6 +151,17 @@ export function SettingsPage(props: Props) {
         </div>
 
         <div className="settingsBody" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${active}`}>
+          {active === "smart" ? <div className="settingsForm">
+            <div className="settingsServiceRow"><span><small>文稿拆分</small><strong>DeepSeek 智能识别</strong></span><button className="textButton" type="button" disabled={!props.smartAvailable || smartCatalogState === "loading"} onClick={() => void refreshSmartModels()}>{smartCatalogState === "loading" ? "正在更新…" : "刷新模型"}</button></div>
+            <label className="field"><span className="label">识别模型</span><select aria-label="DeepSeek 识别模型" value={props.smartModel} onChange={event => props.onSmartModelChange(event.target.value)}>
+              {!smartModels.some(item => item.id === props.smartModel) ? <option value={props.smartModel}>{props.smartModel}</option> : null}
+              {smartModels.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select></label>
+            <p className="settingsHelp">用于“智能识别并拆分”。下次识别生效，选择保存在此浏览器。</p>
+            {!props.smartAvailable ? <p className="inlineError">管理员尚未配置 DeepSeek 密钥。</p> : null}
+            {smartCatalogMessage ? <p className={smartCatalogState === "error" ? "inlineError" : "settingsHelp"} role="status">{smartCatalogMessage}</p> : null}
+            <details className="serviceDetails"><summary>模型说明</summary><p>V4.1 Flash 使用 deepseek-flash。旧 V4 Flash / Pro 接口目前也转到 V4.1 Flash，因此不重复列出。</p><a href="https://www.deepseek.com/news/deepseek-v4-1-flash/" target="_blank" rel="noreferrer">官方模型说明 ↗</a></details>
+          </div> : null}
           {active === "voice" ? (
             <div className="settingsForm">
               <div className="settingsServiceRow">
@@ -190,40 +223,10 @@ export function SettingsPage(props: Props) {
 
           {active === "exam" ? (
             <div className="settingsForm">
-              <details className="settingsDetails"><summary>考试信息</summary><div className="settingsTwoCol">
-                <label className="field">
-                  <div className="label">学校</div>
-                  <input value={props.template.school} onChange={(event) => props.onTemplateChange({ school: event.target.value })} />
-                </label>
-                <label className="field">
-                  <div className="label">年级</div>
-                  <input value={props.template.grade} onChange={(event) => props.onTemplateChange({ grade: event.target.value })} placeholder="高二" />
-                </label>
-                <label className="field">
-                  <div className="label">学年</div>
-                  <input value={props.template.schoolYear} onChange={(event) => props.onTemplateChange({ schoolYear: event.target.value })} />
-                </label>
-                <label className="field">
-                  <div className="label">学期</div>
-                  <input value={props.template.semester} onChange={(event) => props.onTemplateChange({ semester: event.target.value })} />
-                </label>
-                <label className="field">
-                  <div className="label">考试名称</div>
-                  <input value={props.template.examName} onChange={(event) => props.onTemplateChange({ examName: event.target.value })} />
-                </label>
-                <label className="field">
-                  <div className="label">科目</div>
-                  <input value={props.template.subject} onChange={(event) => props.onTemplateChange({ subject: event.target.value })} />
-                </label>
-              </div>
-              </details>
+              <p className="settingsHelp">考试名称与开场播报在“准备文稿”中填写。</p>
               <label className="checkRow">
                 <input type="checkbox" checked={props.template.includeIntroMusic} onChange={(event) => props.onTemplateChange({ includeIntroMusic: event.target.checked })} />
                 <span>导入音乐</span>
-              </label>
-              <label className="checkRow">
-                <input type="checkbox" checked={props.template.includeExamIntro} onChange={(event) => props.onTemplateChange({ includeExamIntro: event.target.checked })} />
-                <span>生成考试介绍音频</span>
               </label>
               <label className="checkRow">
                 <input type="checkbox" checked={props.template.includeQuestionNumbers} onChange={(event) => props.onTemplateChange({ includeQuestionNumbers: event.target.checked })} />

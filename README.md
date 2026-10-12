@@ -1,6 +1,8 @@
 # TTS Studio
 
-教师听力音频工作台：准备文稿 → 分段配音与试听 → 导出 MP3 / WAV。React / Vite 前端，Express / FFmpeg 音频处理，Cloudflare Workers + Containers + R2 部署。
+教师听力音频工作台：准备文稿 → 录音生成 → 试听导出。填写考试名称后自动生成可审阅的开场播报，拆分与生成分开操作。选中任意片段可在其后添加朗读、停顿或音乐。React / Vite 前端，Express / FFmpeg 音频处理，Cloudflare Workers + Containers + R2 部署。
+
+制作设置中的“智能识别”默认使用 DeepSeek V4.1 Flash（`deepseek-flash`），支持刷新官方模型列表；服务器保管密钥，浏览器只保存所选模型。百炼连接页提供北京工作空间 ID 入口；Qwen3 模型返回 400/404 且确认不存在时才尝试兼容模型，并报告实际使用的模型。
 
 线上入口保持 [tts.newsunenglish.com](https://tts.newsunenglish.com/)。
 

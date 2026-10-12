@@ -14,6 +14,7 @@ type Props = {
   voices: VoicePreset[]
   onVoiceChange: (value: string) => void
   baseUrl: string
+  onBaseUrlChange: (value: string) => void
   onContinue: () => void
   onAdvanced: () => void
   onLocalModels: () => void
@@ -45,16 +46,16 @@ export function ServiceHub(props: Props) {
         signal: AbortSignal.any([current.signal, AbortSignal.timeout(90000)]),
         body: JSON.stringify({ credentials: props.credentials, model: props.modelId, voice: props.voiceId, baseUrl: props.baseUrl })
       })
-      const data = await res.json() as { error?: string; detail?: string; url?: string }
+      const data = await res.json() as { error?: string; detail?: string; url?: string; meta?: { usedModel?: string; warnings?: string[] } }
       if (!res.ok || !data.url) { setResult({ ok: false, message: data.error || "测试失败，请稍后重试。", detail: data.detail }); return }
-      setResult({ ok: true, message: "连接成功，短样例已生成。试听满意后即可开始制作。", url: data.url })
+      setResult({ ok: true, message: data.meta?.usedModel && data.meta.usedModel !== props.modelId ? `已使用 ${data.meta.usedModel} 生成短样例。` : "连接成功，短样例已生成。", detail: data.meta?.warnings?.join("\n"), url: data.url })
     } catch (err) {
       if (!current.signal.aborted) setResult({ ok: false, message: err instanceof Error && err.name === "TimeoutError" ? "服务响应超时，请稍后重试。" : "连接中断，请检查网络并重试。" })
     } finally { if (controller.current === current) setTesting(false) }
   }
 
-  const missing = provider?.credentialFields.filter(field => field.required && !props.credentials[field.key]?.trim()) || []
-  const ready = provider?.serverConfigured || !missing.length
+  const missing = provider?.credentialFields.filter(field => (field.required || field.key === "workspaceId" && props.modelId.startsWith("qwen-audio-")) && !props.credentials[field.key]?.trim()) || []
+  const ready = (provider?.serverConfigured || !missing.length) && (!props.modelId.startsWith("qwen-audio-") || Boolean(props.credentials.workspaceId?.trim()))
   return <section className="serviceHub">
     <div className="sectionHeading"><div><h2>选好声音，制作更顺手。</h2><p>先试听，再开始制作。</p></div><div className="hubFilters"><button className={filter === "china" ? "active" : ""} onClick={() => setFilter("china")}>国内服务</button><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部服务</button></div></div>
     <button className="btn mobileConnectionJump" onClick={() => document.getElementById("service-connection")?.scrollIntoView({ block: "start" })}>连接当前服务 ↓</button>
@@ -80,7 +81,11 @@ export function ServiceHub(props: Props) {
       <h3>连接 {provider.label}</h3>
       {guide ? <><div className="officialLinks"><a href={guide.signup} target="_blank" rel="noreferrer">注册 / 开通 ↗</a><a href={guide.keys} target="_blank" rel="noreferrer">获取密钥 ↗</a><a href={guide.pricing} target="_blank" rel="noreferrer">官方价格 ↗</a></div><details className="serviceDetails"><summary>接入说明与计费</summary><p>{guide.cost}</p><ol className="connectSteps">{guide.steps.map(step => <li key={step}>{step}</li>)}</ol></details></> : <p>{provider.description}</p>}
       {provider.serverConfigured && <p className="inlineSuccess">服务器已配置密钥，可以直接测试。</p>}
-      {provider.credentialFields.filter(field => (!provider.serverConfigured || field.type !== "password") && (field.key !== "workspaceId" || props.modelId.startsWith("qwen-audio-"))).map(field => <label className="field" key={field.key}><span className="label">{field.label}{field.required ? " *" : ""}</span><input type={field.type === "password" ? "password" : "text"} autoComplete="off" value={props.credentials[field.key] || ""} placeholder={field.placeholder} onChange={e => props.onCredentialsChange({ ...props.credentials, [field.key]: e.target.value })} /></label>)}
+      {provider.id === "dashscope" && !props.modelId.startsWith("qwen-audio-") ? <label className="field"><span className="label">密钥所属地域</span><select aria-label="百炼服务地域" value={props.baseUrl.includes("dashscope-intl") ? "https://dashscope-intl.aliyuncs.com/api/v1" : props.baseUrl || "https://dashscope.aliyuncs.com/api/v1"} onChange={event => props.onBaseUrlChange(event.target.value)}>
+        <option value="https://dashscope.aliyuncs.com/api/v1">中国内地 · 北京</option><option value="https://dashscope-intl.aliyuncs.com/api/v1">国际 · 新加坡</option>
+        {props.baseUrl && !["https://dashscope.aliyuncs.com/api/v1", "https://dashscope-intl.aliyuncs.com/api/v1"].includes(props.baseUrl) && !props.baseUrl.includes("dashscope-intl") ? <option value={props.baseUrl}>自定义接口</option> : null}
+      </select></label> : null}
+      {provider.credentialFields.filter(field => (!provider.serverConfigured || field.type !== "password") && (field.key !== "workspaceId" || props.modelId.startsWith("qwen-audio-"))).map(field => <div className="field" key={field.key}><label><span className="label">{field.label}{field.required || field.key === "workspaceId" ? " *" : ""}</span><input type={field.type === "password" ? "password" : "text"} autoComplete="off" value={props.credentials[field.key] || ""} placeholder={field.key === "workspaceId" ? "复制北京地域的 Workspace ID" : field.placeholder} onChange={e => props.onCredentialsChange({ ...props.credentials, [field.key]: e.target.value })} /></label>{provider.id === "dashscope" && field.key === "workspaceId" ? <><div className="officialLinks"><a href="https://bailian.console.aliyun.com/?tab=globalset" target="_blank" rel="noreferrer">获取工作空间 ID ↗</a><a href="https://help.aliyun.com/zh/model-studio/obtain-the-app-id-and-workspace-id" target="_blank" rel="noreferrer">图文指引 ↗</a></div><small>选择北京地域，在“业务空间管理”复制 Workspace ID；使用同一空间的 API Key。</small></> : null}</div>)}
       <label className="field"><span className="label">模型</span><select value={props.modelId} onChange={e => props.onModelChange(e.target.value)}>{provider.models.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
       <label className="field"><span className="label">试听音色</span><select value={props.voiceId} onChange={e => props.onVoiceChange(e.target.value)}>{props.voices.map(voice => <option key={voice.id} value={voice.id}>{voice.label}</option>)}</select></label>
       <button className="btnPrimary connectionTest" disabled={!ready || testing || !props.modelId} onClick={() => void testConnection()}>{testing ? "正在测试并生成短样例…" : "测试连接并试听"}</button><small>短句试听按服务商计费。密钥仅保存在当前会话。</small>

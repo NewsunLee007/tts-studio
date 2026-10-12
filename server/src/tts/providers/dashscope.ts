@@ -185,7 +185,7 @@ export async function dashscopeTts(req: UnifiedTtsRequest): Promise<TtsAudio> {
       const voiceUnsupported = isUnsupportedQwenVoiceError(errorText)
       const modelUnsupported = /Model not exist|model.*not.*exist/i.test(errorText)
       const canFallbackVoice = res.status === 400 && voiceUnsupported && voice !== voiceAttempts[voiceAttempts.length - 1]
-      const canFallbackModel = res.status === 400 && modelUnsupported && model !== modelAttempts[modelAttempts.length - 1]
+      const canFallbackModel = (res.status === 400 || res.status === 404) && modelUnsupported && model !== modelAttempts[modelAttempts.length - 1]
       if (canFallbackModel) break
       if (!canFallbackVoice && !canFallbackModel) {
         throw new Error(`DashScope TTS error (${res.status}): ${errorText || res.statusText}`)
