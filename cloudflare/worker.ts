@@ -1,5 +1,5 @@
 import { Container, getContainer } from "@cloudflare/containers"
-import { readAudio } from "./audio"
+import { readAudio, audioLifetime } from "./audio"
 import { providerConfigs, stylePresets, pacePresets } from "../server/src/presets"
 import { hasServerCredentials } from "../server/src/tts/credentials"
 import { smartScriptAssistStatus } from "../server/src/smartScriptAnalyzer"
@@ -28,6 +28,19 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
+    if (path === "/api/audio-metadata" && request.method === "POST") {
+      const body = await request.json().catch(() => null) as { urls?: unknown } | null
+      if (!Array.isArray(body?.urls) || body.urls.length > 100) return new Response(null, { status: 400 })
+      const result = []
+      for (const audioUrl of body.urls) {
+        if (typeof audioUrl !== "string") continue
+        const match = /^\/(audio|exports)\/([0-9a-f-]{36})\.(mp3|wav)$/.exec(audioUrl)
+        if (!match) continue
+        const object = await env.AUDIO.head(`${match[1] === "audio" ? "segment" : "export"}/${match[2]}`)
+        result.push({ url: audioUrl, ...(object ? audioLifetime(object.uploaded) : { expiresAt: new Date(0).toISOString() }) })
+      }
+      return Response.json(result, { headers: { "Cache-Control": "no-store" } })
+    }
     // Opening the workspace should not wait for an idle audio container to wake.
     if (path === "/api/providers" && request.method === "GET") {
       const values = Object.fromEntries(Object.entries(env).filter(([, value]) => typeof value === "string")) as Record<string, string>
@@ -85,6 +98,15 @@ export default {
         const response = await getContainer(env.TTS_API, "studio").fetch(request)
         const headers = new Headers(response.headers)
         headers.set("X-TTS-Platform", "cloudflare-containers")
+        if (response.ok && request.method === "POST" && ["/api/tts", "/api/gemini/tts/dialogue", "/api/compose"].includes(path)) {
+          const result = await response.json() as Record<string, unknown>
+          if (typeof result.id === "string" && /^[0-9a-f-]{36}$/.test(result.id)) {
+            const object = await env.AUDIO.head(`${path === "/api/compose" ? "export" : "segment"}/${result.id}`).catch(() => null)
+            if (object) Object.assign(result, audioLifetime(object.uploaded))
+          }
+          headers.delete("Content-Length")
+          return Response.json(result, { status: response.status, headers })
+        }
         return new Response(response.body, { status: response.status, headers })
       } catch {
         return Response.json({ error: "音频服务正在启动或暂时不可用，请稍后重试。" }, { status: 503, headers: { "Retry-After": "10" } })

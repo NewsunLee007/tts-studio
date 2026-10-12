@@ -17,8 +17,6 @@ type Props = {
   onGenerate: (uid: string) => void
   onGenerateSingle: (uid: string) => void
   onClearAudio: (uid: string) => void
-  repeatControl?: { canUse: boolean; enabled: boolean }
-  onToggleRepeat?: (uid: string) => void
 }
 
 function filterVoices(list: VoicePreset[], gender: VoiceGender | "all") {
@@ -56,6 +54,7 @@ function roleLabel(segment: TtsSegment) {
 }
 
 function segmentRoleLabel(segment: TtsSegment) {
+  if (segment.repeatVoiceMode) return segment.repeatSourceUid ? "第二遍 · 女声" : "第一遍 · 男声"
   if (segment.role === "female") return "女声"
   if (segment.role === "male") return "男声"
   if (segment.role === "question") return "题号"
@@ -301,9 +300,10 @@ export function SegmentEditor(props: Props) {
 
         <div className="segmentVoiceChoice">
             <label className="field">
-            <div className="label">本片段音色</div>
+            <div className="label">{seg.repeatVoiceMode ? "本题统一音色 · 在题目开头调整" : "本片段音色"}</div>
             <select
               aria-label="本片段音色"
+              disabled={Boolean(seg.repeatVoiceMode)}
               value={seg.voiceId || props.globalVoiceId}
               onChange={(e) => props.onUpdate(seg.uid, { voiceId: e.target.value })}
             >
@@ -389,10 +389,6 @@ export function SegmentEditor(props: Props) {
 
         {isAudioReuse ? (
           <p className="settingsHelp">第二遍复用首遍音频，不重复计费。</p>
-        ) : null}
-
-        {props.repeatControl?.canUse ? (
-          <label className="repeatToggle"><input type="checkbox" checked={props.repeatControl.enabled} onChange={() => props.onToggleRepeat?.(seg.uid)} />本题读两遍</label>
         ) : null}
 
         {!isTurnByTurnGroup && seg.audioUrl ? <div className="previewStrip"><audio className="audio" controls src={seg.audioUrl} /></div> : null}

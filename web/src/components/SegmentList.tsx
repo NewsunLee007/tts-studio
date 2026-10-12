@@ -1,4 +1,6 @@
+import { useState } from "react"
 import type { ProviderId, Segment, TtsSegment, VoicePreset, VoiceRoleKey } from "../types"
+import { groupRepeatMode, isRepeat, repeatGroupLeader, type RepeatMode, type RepeatVoices } from "../lib/groupRepeat"
 
 type Props = {
   provider: ProviderId
@@ -11,6 +13,8 @@ type Props = {
   voiceOptions: VoicePreset[]
   roleVoiceIds: Record<VoiceRoleKey, string>
   onRoleVoiceChange: (role: VoiceRoleKey, voiceId: string) => void
+  onRepeatChange: (groupId: string, mode: RepeatMode, voices: RepeatVoices) => void
+  recording: boolean
 }
 
 function summarize(seg: Segment) {
@@ -188,16 +192,8 @@ function voiceCandidates(voices: VoicePreset[], role: VoiceRoleKey) {
   return filtered.length ? filtered : voices
 }
 
-function roleCount(segments: Segment[], role: VoiceRoleKey) {
-  return segments.filter((segment) => {
-    if (segment.type !== "tts") return false
-    if (role === "male" || role === "female") return segment.role === role
-    if (role === "question") return isQuestion(segment)
-    return (segment.role === "narrator" || segment.role === "intro" || segment.role === "neutral") && /[\u3400-\u9fff]/.test(segment.text)
-  }).length
-}
-
 export function SegmentList(props: Props) {
+  const [voicesOpen, setVoicesOpen] = useState(false)
   const groups = groupForGemini(props.segments.map(segment => {
     if (segment.type !== "tts") return segment
     const source = segment.repeatOfUid ? props.segments.find(item => item.uid === segment.repeatOfUid) : undefined
@@ -213,25 +209,20 @@ export function SegmentList(props: Props) {
     <aside className="leftPane">
       <div className="leftHead">
         <div>
-          <h2 className="leftTitle">录音脚本 <small>{props.segments.length} 段</small></h2>
+          <h2 className="leftTitle">片段 <small>{props.segments.length}</small></h2>
         </div>
         <div className="leftActions">
           <button className="btnGhost" type="button" onClick={() => props.onAdd()}>
-            ＋ 添加片段
+            ＋ 添加
           </button>
+          <button className="btnGhost" type="button" aria-expanded={voicesOpen} aria-controls="role-voice-panel" onClick={() => setVoicesOpen(value => !value)}>音色</button>
           <button className="btnGhost" type="button" onClick={props.onClearAll} disabled={!props.segments.length}>
             清空
           </button>
         </div>
       </div>
 
-      <details className="roleRules" open={!props.segments.length}>
-        <summary>
-          <span>角色声音</span>
-          <span className="roleRulesSummary">
-            说明 {roleCount(props.segments, "narrator")} · 男 {roleCount(props.segments, "male")} · 女 {roleCount(props.segments, "female")}
-          </span>
-        </summary>
+      {voicesOpen ? <div className="roleRules" id="role-voice-panel">
         <div className="roleRuleGrid">
           {roleRules.map((rule) => {
             const options = voiceCandidates(props.voiceOptions, rule.id)
@@ -253,13 +244,23 @@ export function SegmentList(props: Props) {
           })}
         </div>
         <div className="roleRulesHint">应用到当前及后续同类片段。</div>
-      </details>
+      </div> : null}
 
       <div className="list" role="list" aria-label="录音片段">
         {groups.map((group, idx) => {
           const selected = group.segments.some((seg) => seg.uid === props.selectedUid)
           const cls = selected ? "listItem listItemActive" : "listItem"
           const kind = groupKind(group)
+          const original = props.segments.find(item => item.uid === group.containerUid)
+          const groupId = original && "groupId" in original ? original.groupId : undefined
+          const leader = repeatGroupLeader(props.segments, groupId)
+          const showRepeat = leader?.uid === original?.uid
+          const repeatMode = groupId ? groupRepeatMode(props.segments, groupId) : "once"
+          const maleVoices = props.voiceOptions.filter(voice => voice.gender === "male")
+          const femaleVoices = props.voiceOptions.filter(voice => voice.gender === "female")
+          const firstContent = props.segments.find((item): item is TtsSegment => item.type === "tts" && item.groupId === groupId && item.repeatVoiceMode === "male-female" && !isRepeat(item))
+          const secondContent = props.segments.find((item): item is TtsSegment => item.type === "tts" && item.groupId === groupId && Boolean(item.repeatSourceUid))
+          const repeatVoices = { first: firstContent?.voiceId || props.roleVoiceIds.male || maleVoices[0]?.id || "", second: repeatMode === "male-female" ? secondContent?.voiceId || "" : props.roleVoiceIds.female || femaleVoices[0]?.id || "" }
           return (
             <div
               key={group.key}
@@ -273,9 +274,16 @@ export function SegmentList(props: Props) {
                 if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onSelect(group.containerUid) }
               }}
             >
+              {showRepeat && groupId ? <div className="questionRepeat" onClick={event => event.stopPropagation()}>
+                <label><span>本题朗读</span><select aria-label="本题朗读次数与音色" value={repeatMode} disabled={props.recording} onChange={event => props.onRepeatChange(groupId, event.target.value as RepeatMode, repeatVoices)}>
+                  <option value="once">读一遍</option><option value="original">读两遍 · 沿用原声</option><option value="male-female" disabled={!maleVoices.length || !femaleVoices.length}>读两遍 · 先男后女</option>
+                </select></label>
+                {repeatMode === "male-female" ? <div className="repeatVoiceFields">{([ ["first", "第一遍 · 男声", maleVoices], ["second", "第二遍 · 女声", femaleVoices] ] as const).map(([pass, label, options]) => <label key={pass}><span>{label}</span><select aria-label={label} value={repeatVoices[pass]} disabled={props.recording} onChange={event => props.onRepeatChange(groupId, repeatMode, { ...repeatVoices, [pass]: event.target.value })}>{options.map(voice => <option key={voice.id} value={voice.id}>{voice.label}</option>)}</select></label>)}</div> : null}
+                {repeatMode === "male-female" ? <small>两遍分别生成，按服务商用量计费。</small> : null}
+              </div> : null}
               <div className="liTop">
                 <div className="liIndex">#{idx + 1}</div>
-                <div className={`badge ${kind.className}`}>{kind.label}{group.segments[0]?.type === "tts" && group.segments[0].repeatOfUid ? " · 重读" : ""}</div>
+                <div className={`badge ${kind.className}`}>{original?.type === "tts" && original.repeatVoiceMode ? isRepeat(original) ? "女声 · 第二遍" : "男声 · 第一遍" : kind.label + (original && isRepeat(original) ? " · 第二遍" : "")}</div>
                 <div className={`status ${groupStatusTone(group)}`}>{groupStatusLabel(group)}</div>
               </div>
               <div className="liMain">

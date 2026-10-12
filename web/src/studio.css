@@ -325,3 +325,98 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
   .studioShell .exportContent .studioPreview input { order: 4; flex-basis: 100%; }
   .examTitleFields input, .examTitleFields textarea { font-size: 16px; }
 }
+
+/* Keep the recording frame still while each working pane scrolls inside it. */
+.studioShell.view-studio {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 24px;
+}
+.studioShell.view-studio .workspace {
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+}
+.studioShell.view-studio .segmentPane {
+  position: static;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.studioShell.view-studio .leftPane {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+.studioShell.view-studio .leftPane > :not(.list) { flex-shrink: 0; }
+.studioShell.view-studio .list {
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.studioShell.view-studio .editorStack {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.studioShell.view-studio .editorStack > * { flex-shrink: 0; }
+.questionRepeat { padding: 4px 0 14px; margin-bottom: 14px; border-bottom: 1px solid #dce6df; }
+.questionRepeat label { display: grid; gap: 7px; font-size: 12px; color: #537663; }
+.questionRepeat select { width: 100%; min-width: 0; min-height: 38px; border: 1px solid #cbded1; border-radius: 6px; background: #fff; padding: 7px; color: #294b3c; font: inherit; }
+.repeatVoiceFields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; }
+.questionRepeat small { display: block; color: #7d8e85; font-size: 11px; margin-top: 10px; }
+.audioHistory { margin-top: 30px; border-top: 1px solid #dce6df; padding-top: 24px; }
+.audioHistory h2 { font: 600 16px/1.5 var(--sans); margin: 0 0 8px; }
+.audioHistory p, .audioHistory summary { font-size: 12px; line-height: 1.8; color: #7d8e85; }
+.audioHistory summary { cursor: pointer; padding: 12px 0; }
+.audioHistoryList { max-height: 350px; overflow-y: auto; }
+.audioHistoryRow { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 0; border-bottom: 1px solid #edf1ed; }
+.audioHistoryRow > div { min-width: 0; }
+.audioHistoryRow strong { display: block; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.audioHistoryRow small { display: block; font-size: 11px; color: #7d8e85; margin-top: 6px; }
+.audioHistoryRow button { flex-shrink: 0; }
+@media(max-width:1100px) {
+  .studioShell.view-studio .workspace { grid-template-rows: auto minmax(0, 1fr); }
+}
+
+/* Keep actions on the heading and give the script the available height. */
+.currentVoiceCard { min-height: 36px; padding: 6px 10px; gap: 8px; white-space: nowrap; }
+.currentVoiceCard strong { margin: 0; }
+.currentVoiceCard em { font-size: 10px; }
+.studioShell.view-studio .studioPageHeading { padding-block: 16px; gap: 16px; flex-wrap: wrap; }
+.studioShell.view-studio .studioPageHeading h1 { font-size: 24px; }
+.studioShell.view-studio .recordingToolbar { margin-left: auto; border: 0; background: none; padding: 0; gap: 12px; flex-wrap: nowrap; }
+.recordingToolbar > span { margin: 0; font-size: 12px; white-space: nowrap; }
+.recordingActions .btn, .recordingActions .btnPrimary { min-height: 36px; padding: 7px 12px; font-size: 12px; }
+.studioShell.view-studio .leftHead { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; }
+.studioShell.view-studio .leftTitle { margin: 0; font-size: 13px; white-space: nowrap; }
+.studioShell.view-studio .leftActions { margin: 0; gap: 4px; width: auto; }
+.studioShell.view-studio .leftActions button { padding: 6px; min-height: 34px; }
+.studioShell.view-studio .leftActions button[aria-expanded=true] { background: #e8f2eb; border-color: #a4c2ad; }
+.studioShell.view-studio .roleRules { max-height: 42%; overflow-y: auto; }
+.studioShell.view-studio .roleRuleGrid { padding: 12px; }
+.studioShell.view-studio .listItem { padding-block: 10px; }
+@media(max-width:1100px) {
+  .studioShell.view-studio .studioPageHeading { gap: 10px; }
+  .studioShell.view-studio .studioPageHeading h1 { font-size: 22px; }
+}
+@media(max-width:760px) {
+  .studioShell.view-studio .studioPageHeading { padding-block: 10px; }
+  .studioShell.view-studio .currentVoiceCard { margin-left: auto; }
+  .studioShell.view-studio .recordingToolbar { flex-basis: 100%; justify-content: space-between; }
+  .studioShell.view-studio .recordingActions { width: auto; }
+  .studioShell.view-studio .mobileInspectTab { padding-block: 8px; }
+}
+@media(max-width:760px) {
+  .studioShell.view-studio { padding-bottom: 80px; }
+  .studioShell.view-studio .workspace { padding-bottom: 0; gap: 12px; }
+}

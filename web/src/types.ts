@@ -143,6 +143,9 @@ export type TtsSegment = {
   providerOverrides?: Record<string, unknown>
   generationMeta?: TtsGenerationMeta
   repeatOfUid?: string
+  repeatSourceUid?: string
+  repeatVoiceMode?: "male-female"
+  repeatOriginalVoiceId?: string
   audioId?: string
   audioUrl?: string
   status: QueueStatus
@@ -156,6 +159,7 @@ export type SilenceSegment = {
   label?: string
   role?: SegmentRole
   groupId?: string
+  repeatGroupId?: string
 }
 
 export type MusicSegment = {

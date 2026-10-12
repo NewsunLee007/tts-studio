@@ -9,6 +9,9 @@ import { ServiceHub } from "./components/ServiceHub"
 import { LocalTtsPage } from "./components/LocalTtsPage"
 import { AddSegmentDialog, type NewSegment } from "./components/AddSegmentDialog"
 import { buildExamIntro, insertAfterSegment } from "./lib/examWorkflow"
+import { configureGroupRepeat, isRepeat, type RepeatMode, type RepeatVoices } from "./lib/groupRepeat"
+import { AudioHistory } from "./components/AudioHistory"
+import { mergeAudioHistory, parseAudioHistory, type AudioHistoryEntry } from "./lib/audioHistory"
 import "./studio.css"
 import { PreviewPlayer } from "./lib/previewPlayer"
 import type { ExamDraftSegment } from "./lib/examScriptParser"
@@ -34,10 +37,10 @@ import type {
 
 type ApplyMode = "append" | "replace"
 type DirectorSegment = Segment & { stylePresetId?: string }
-type TtsResult = { id?: string; url?: string; error?: string; meta?: TtsGenerationMeta }
+type TtsResult = { id?: string; url?: string; error?: string; meta?: TtsGenerationMeta; createdAt?: string; expiresAt?: string }
 
 function isSecondPassSegment(segment: Segment) {
-  return segment.type === "tts" && /第\s*2\s*遍|第2遍/.test(segment.directorNote || "")
+  return isRepeat(segment)
 }
 
 function isFirstPassSegment(segment: Segment) {
@@ -124,7 +127,7 @@ function stableHash(input: string) {
 
 function linkRepeatedAudioSegments(input: Segment[]) {
   const firstPass = new Map<string, string[]>()
-  return input.map((segment) => {
+  return input.filter(segment => !(isRepeat(segment) && segment.type === "tts" && hasChineseText(segment.text))).map((segment) => {
     if (segment.type !== "tts") return segment
     const key = repeatMatchKey(segment)
     if (isSecondPassSegment(segment)) {
@@ -456,7 +459,7 @@ function languageRateDirective(text: string, template: ExamTemplate) {
 function requestLanguageType(text: string, provider: ProviderId, languageType: string, accentLocale: string) {
   if (provider === "dashscope") {
     if (hasChineseText(text)) return "Chinese"
-    return languageType === "Auto" ? undefined : languageType
+    return /[A-Za-z]/.test(text) ? "English" : languageType === "Auto" ? undefined : languageType
   }
   if (hasChineseText(text)) return "zh-CN"
   return accentLocale === "en" ? undefined : accentLocale
@@ -468,6 +471,22 @@ type PreviewItem =
   | { kind: "audio"; url: string; label?: string; groupId?: string; role?: string; estimatedSeconds?: number }
 
 export default function App() {
+  const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>(() => {
+    let history = parseAudioHistory(readJson("tts_audio_history"))
+    for (const segment of readStoredSegments()) {
+      if (segment.type === "tts" && segment.audioUrl && !history.some(item => item.url === segment.audioUrl)) history = mergeAudioHistory(history, { url: segment.audioUrl, title: segment.label || segment.text.slice(0, 40) || "片段录音", kind: "segment", createdAt: "" })
+    }
+    return history
+  })
+  useEffect(() => { safeSetItem("tts_audio_history", JSON.stringify(audioHistory)) }, [audioHistory])
+  const updateHistoryMetadata = useCallback((items: Array<{ url: string; createdAt?: string; expiresAt?: string }>) => {
+    setAudioHistory(previous => previous.map(entry => ({ ...entry, ...items.find(item => item.url === entry.url) })))
+  }, [])
+  function rememberAudio(result: TtsResult, kind: AudioHistoryEntry["kind"], title: string) {
+    if (!result.url) return
+    const entry: AudioHistoryEntry = { url: result.url, kind, title, createdAt: result.createdAt || new Date().toISOString(), expiresAt: result.expiresAt }
+    setAudioHistory(previous => mergeAudioHistory(previous, entry))
+  }
   const [workspaceView, setWorkspaceView] = useState<"script" | "studio" | "export" | "services" | "settings" | "local">(() => window.location.pathname.replace(/\/$/, "") === "/local-tts" ? "local" : "script")
   useEffect(() => {
     const onPopState = () => setWorkspaceView(window.location.pathname.replace(/\/$/, "") === "/local-tts" ? "local" : "services")
@@ -527,7 +546,7 @@ export default function App() {
 
   const [segments, setSegments] = useState<Segment[]>(() => readStoredSegments())
   const [lastExportUrl, setLastExportUrl] = useState("")
-  const [selectedUid, setSelectedUid] = useState<string | null>(null)
+  const [selectedUid, setSelectedUid] = useState<string | null>(() => segments[0]?.uid ?? null)
   const [composeRunning, setComposeRunning] = useState(false)
   const [composeError, setComposeError] = useState("")
   const [bulkRunning, setBulkRunning] = useState(false)
@@ -797,8 +816,8 @@ export default function App() {
     setSegments((prev) =>
       prev.map((item) => {
         if (item.uid !== segUid) {
-          if (item.type === "tts" && "text" in patch && item.repeatOfUid === segUid) {
-            return { ...item, audioId: undefined, audioUrl: undefined, generationMeta: undefined, status: "idle", error: "" }
+          if (item.type === "tts" && "text" in patch && (item.repeatOfUid === segUid || item.repeatSourceUid === segUid)) {
+            return { ...item, text: patch.text as string, audioId: undefined, audioUrl: undefined, generationMeta: undefined, status: "idle", error: "" }
           }
           return item
         }
@@ -913,7 +932,7 @@ export default function App() {
     setRoleVoiceIds((prev) => ({ ...prev, [role]: nextVoiceId }))
     setSegments((prev) =>
       prev.map((item) => {
-        if (item.type !== "tts" || voiceRuleForSegment(item) !== role) return item
+        if (item.type !== "tts" || item.repeatVoiceMode || voiceRuleForSegment(item) !== role) return item
         return {
           ...item,
           voiceId: nextVoiceId,
@@ -1033,7 +1052,7 @@ export default function App() {
   }
 
   function insertAfterSelection(input: Segment[], segment: Segment) {
-    return insertAfterSegment(input, selectedUid, segment)
+    return insertAfterSegment(input, selectedUid, segment, provider === "google_gemini" && !input.some(item => item.uid === selectedUid && item.type === "tts" && item.repeatVoiceMode))
   }
 
   function addChosenSegment(value: NewSegment) {
@@ -1049,55 +1068,9 @@ export default function App() {
     if (next) { setSelectedUid(next.uid); setMobileInspectPanel("editor") }
   }
 
-  function repeatEnabledForGroup(groupId?: string) {
-    if (!groupId) return false
-    return segments.some((item) => item.type === "tts" && item.groupId === groupId && (Boolean(item.repeatOfUid) || isSecondPassSegment(item)))
-  }
-
-  function canRepeatSelectedGroup(segment: Segment | null) {
-    if (!segment || segment.type !== "tts" || !segment.groupId || isQuestionRole(segment)) return false
-    if (segment.role === "intro" || /exam-intro|::instruction|::closing/.test(segment.groupId)) return false
-    const firstPass = segments.filter((item): item is TtsSegment => item.type === "tts" && item.groupId === segment.groupId && !isQuestionRole(item) && !item.repeatOfUid && !isSecondPassSegment(item))
-    return firstPass.length > 0
-  }
-
-  function toggleRepeatForSegment(segUid: string) {
-    const selected = segments.find((item) => item.uid === segUid)
-    if (!selected || selected.type !== "tts" || !selected.groupId) return
-    const groupId = selected.groupId
-    const enabled = repeatEnabledForGroup(groupId)
-    setSegments((prev) => {
-      if (enabled) {
-        return prev.filter((item) => {
-          if (item.type === "silence" && item.groupId === groupId && item.label === "重读间隔") return false
-          if (item.type === "tts" && item.groupId === groupId && (item.repeatOfUid || isSecondPassSegment(item))) return false
-          return true
-        })
-      }
-      const firstPass = prev.filter((item): item is TtsSegment => item.type === "tts" && item.groupId === groupId && !isQuestionRole(item) && !item.repeatOfUid && !isSecondPassSegment(item))
-      if (!firstPass.length) return prev
-      const lastInGroup = prev.reduce((last, item, index) => {
-        const itemGroupId = item.type === "tts" || item.type === "silence" ? item.groupId : undefined
-        return itemGroupId === groupId ? index : last
-      }, -1)
-      const repeats: Segment[] = [
-        { uid: uid(), type: "silence", durationMs: 1200, label: "重读间隔", role: "neutral", groupId },
-        ...firstPass.map((item) => ({
-          ...item,
-          uid: uid(),
-          repeatOfUid: item.uid,
-          audioId: undefined,
-          audioUrl: undefined,
-          generationMeta: undefined,
-          status: "idle" as const,
-          error: "",
-          directorNote: item.directorNote?.replace(/第1遍/g, "第2遍") || "第2遍；复用第1遍音频。"
-        }))
-      ]
-      const copy = [...prev]
-      copy.splice(lastInGroup + 1, 0, ...repeats)
-      return copy
-    })
+  function setGroupRepeat(groupId: string, mode: RepeatMode, voices: RepeatVoices) {
+    if (bulkRunning) return
+    setSegments(prev => configureGroupRepeat(prev, groupId, mode, voices, uid))
   }
 
   function voiceForRole(role?: string, text?: string) {
@@ -1126,6 +1099,7 @@ export default function App() {
 
   function voiceForSegmentRequest(seg: TtsSegment, text: string) {
     const voices = roleVoiceOptions
+    if (seg.repeatVoiceMode && voices.some(voice => voice.id === seg.voiceId)) return seg.voiceId
     const rule = voiceRuleForSegment({ ...seg, text })
     if (rule) {
       const selectedRuleVoice = roleVoiceIds[rule]
@@ -1191,6 +1165,7 @@ export default function App() {
       const message = json.error || rawText || "生成失败"
       if (res.ok) {
         if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
+        rememberAudio(json, "segment", `${template.examName || "听力录音"} · ${seg.label || text.slice(0, 30)}`)
         return json
       }
       if (attempt < maxAttempts && (res.status === 429 || isRetryableTtsError(message))) {
@@ -1223,6 +1198,7 @@ export default function App() {
       const message = json.error || rawText || fallbackError
       if (res.ok) {
         if (!json.id || !json.url) throw new Error("生成返回缺少音频信息")
+        rememberAudio(json, "segment", `${template.examName || "听力录音"} · 整题`)
         return json
       }
       if (attempt < maxAttempts && (res.status === 429 || isRetryableTtsError(message))) {
@@ -1318,7 +1294,8 @@ export default function App() {
   }
 
   function shouldGenerateAsGroup(segment: TtsSegment) {
-    if (!segment.groupId || isQuestionRole(segment) || segment.repeatOfUid) return false
+    if (!segment.groupId || isQuestionRole(segment) || segment.repeatOfUid || segment.repeatVoiceMode) return false
+    if (groupSegments(segment.groupId).some(item => item.repeatVoiceMode)) return false
     if (segment.role === "intro" || segment.groupId.includes("::instruction") || segment.groupId.includes("::closing") || segment.groupId.includes("::number")) return false
     const list = groupSegments(segment.groupId).filter((item) => !item.repeatOfUid && !isSecondPassSegment(item) && Boolean(item.text.trim()))
     const hasDialogue = list.some((item) => item.role === "male" || item.role === "female" || Boolean(toDialogueSpeaker(item)))
@@ -1885,10 +1862,11 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       })
-      const json = (await res.json()) as { url?: string; error?: string }
+      const json = (await res.json()) as TtsResult
       if (!res.ok) throw new Error(json.error || "合成失败")
       if (!json.url) throw new Error("合成成功，但没有返回下载地址")
       setLastExportUrl(json.url)
+      rememberAudio(json, "export", template.examName || "听力成品")
       downloadExport(json.url, exportFormat)
     } catch (err) {
       setComposeError(err instanceof Error ? err.message : "合成失败")
@@ -1955,7 +1933,14 @@ export default function App() {
         stats={stats}
       />
 
-{workspaceView === "local" ? <LocalTtsPage onBack={() => setWorkspaceView("services")} /> : workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onBaseUrlChange={setBaseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} onLocalModels={() => setWorkspaceView("local")} /></div> : <div className="studioPageHeading"><div><h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "录音生成" : workspaceView === "settings" ? "制作设置" : "试听导出"}</h1></div>{workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" onClick={() => setWorkspaceView("services")}><span className="voiceCardIcon">♫</span><span><small>当前声音服务</small><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置 · 点击测试或更换" : "尚未连接 · 点此开通"}</em></span><span>↗</span></button> : null}</div>}
+{workspaceView === "local" ? <LocalTtsPage onBack={() => setWorkspaceView("services")} /> : workspaceView === "services" ? <div className="servicePage"><ServiceHub providers={providers} provider={providerConfig} onProviderChange={setProvider} credentials={credentials} onCredentialsChange={setCredentials} modelId={modelId} onModelChange={applyModelChange} voiceId={voiceId} voices={roleVoiceOptions} onVoiceChange={setVoiceId} baseUrl={baseUrl} onBaseUrlChange={setBaseUrl} onContinue={() => setWorkspaceView("script")} onAdvanced={() => setWorkspaceView("settings")} onLocalModels={() => setWorkspaceView("local")} /></div> : <div className="studioPageHeading">
+        <h1>{workspaceView === "script" ? "准备文稿" : workspaceView === "studio" ? "录音生成" : workspaceView === "settings" ? "制作设置" : "试听导出"}</h1>
+        {workspaceView === "script" || workspaceView === "studio" ? <button className="currentVoiceCard" title="测试或更换声音服务" onClick={() => setWorkspaceView("services")}><strong>{providerConfig?.label || "正在加载…"}</strong><em>{providerConfig?.serverConfigured || credentialsComplete(providerConfig, credentials) ? "已配置" : "未连接"}</em><span aria-hidden="true">↗</span></button> : null}
+        {workspaceView === "studio" ? <div className="recordingToolbar">
+          <span role="status">{bulkRunning ? bulkProgressText || "正在生成…" : canCompose ? "✓ 已完成" : `${stats.generated} / ${stats.tts} 段`}</span>
+          <div className="recordingActions">{bulkRunning ? <button className="btn" onClick={stopGenerateAll}>停止</button> : canCompose ? <button className="btnPrimary" onClick={() => setWorkspaceView("export")}>试听导出 →</button> : <button className="btnPrimary" disabled={!hasPendingGeneration} onClick={generateAll}>{stats.generated ? "生成剩余" : "确认并生成"}</button>}{stats.errors && !bulkRunning ? <button className="btn" onClick={retryFailed}>重试失败项</button> : null}</div>
+        </div> : null}
+      </div>}
 
       {workspaceView === "script" && providerConfig && !providerConfig.serverConfigured && !credentialsComplete(providerConfig, credentials) ? <div className="setupBanner"><span>连接声音服务后即可生成音频。</span><button onClick={() => setWorkspaceView("services")}>选择声音服务 →</button></div> : null}
 
@@ -1975,14 +1960,11 @@ export default function App() {
           {!canCompose ? <button className="textButton exportReturn" onClick={() => setWorkspaceView(stats.tts ? "studio" : "script")}>{stats.tts ? `继续完成剩余 ${Math.max(0, stats.tts - stats.generated)} 段 →` : "准备文稿 →"}</button> : null}
           {lastExportUrl ? <div className="exportLast"><span>上次成品</span><audio controls preload="none" src={lastExportUrl} /><button className="textButton" onClick={() => downloadExport(lastExportUrl)}>再次下载 ↓</button></div> : null}
           {composeError ? <div className="inlineError" role="alert">{composeError}</div> : null}
+          <AudioHistory entries={audioHistory} onMetadata={updateHistoryMetadata} />
         </div>
       </section> : null}
 
       <main className="workspace" aria-label="文稿与配音工作区" style={{ "--paste-pane-width": `${pastePaneWidth}px`, "--segment-pane-width": `${segmentPaneWidth}px` } as CSSProperties}>
-        {workspaceView === "studio" ? <div className="recordingToolbar" role="status">
-          <div><strong>{bulkRunning ? "正在生成录音" : canCompose ? "录音已全部完成" : "检查后，生成录音"}</strong><span>{bulkRunning ? bulkProgressText : canCompose ? "可以进入下一步试听了。" : `${stats.generated} / ${stats.tts} 段已完成 · 可随时调整文字与停顿`}</span></div>
-          <div className="recordingActions">{bulkRunning ? <button className="btn" onClick={stopGenerateAll}>停止生成</button> : canCompose ? <button className="btnPrimary" onClick={() => setWorkspaceView("export")}>进入试听导出 →</button> : <button className="btnPrimary" disabled={!hasPendingGeneration} onClick={generateAll}>{stats.generated ? "生成剩余录音" : "确认文稿，生成录音"}</button>}{stats.errors && !bulkRunning ? <button className="btn" onClick={retryFailed}>重试失败项</button> : null}</div>
-        </div> : null}
         <div className="pastePane">
           <BulkPaste
             analyzing={analyzing}
@@ -2082,6 +2064,8 @@ export default function App() {
             voiceOptions={roleVoiceOptions}
             roleVoiceIds={roleVoiceIds}
             onRoleVoiceChange={applyRoleVoice}
+            onRepeatChange={setGroupRepeat}
+            recording={bulkRunning}
           />
           <button
             className="resizeHandle segmentResizeHandle"
@@ -2102,15 +2086,13 @@ export default function App() {
             styleOptions={styles}
             stylePrompt={stylePrompt}
             contextPreview={geminiContextPreview}
-            groupSegments={provider === "google_gemini" && selectedSegment?.type === "tts" && selectedSegment.groupId ? groupSegments(selectedSegment.groupId) : []}
+            groupSegments={provider === "google_gemini" && selectedSegment?.type === "tts" && selectedSegment.groupId && !groupSegments(selectedSegment.groupId).some(item => item.repeatVoiceMode) ? groupSegments(selectedSegment.groupId) : []}
             segment={selectedSegment}
             onUpdate={updateSegment}
             onDelete={deleteSegment}
             onGenerate={uid => void generateSegmentAudio(uid, provider !== "google_gemini")}
             onGenerateSingle={(uid) => void generateSegmentAudio(uid, true)}
             onClearAudio={clearAudio}
-            repeatControl={{ canUse: canRepeatSelectedGroup(selectedSegment), enabled: selectedSegment?.type === "tts" ? repeatEnabledForGroup(selectedSegment.groupId) : false }}
-            onToggleRepeat={toggleRepeatForSegment}
           />
 
           {composeError ? <div className="toast toastError">{composeError}</div> : null}

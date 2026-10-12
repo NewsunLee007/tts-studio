@@ -30,6 +30,7 @@ import {
 import { analyzeExamScript, analyzeGeneralScript, detectScriptDocumentType, type ExamTemplate } from "./scriptAnalyzer.js"
 import { listDeepSeekModels, normalizeScriptWithDeepSeek, smartScriptAssistStatus } from "./smartScriptAnalyzer.js"
 import { dashscopeTts } from "./tts/providers/dashscope.js"
+import { prepareEnglishNumbers } from "./tts/englishNumbers.js"
 import { googleTts } from "./tts/providers/google.js"
 import { googleGeminiDialogueTts, googleGeminiTts } from "./tts/providers/googleGemini.js"
 import { minimaxTts } from "./tts/providers/minimax.js"
@@ -373,7 +374,8 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
     provider,
     body.credentials || (body.apiKey ? { apiKey: body.apiKey } : {})
   )
-  const phonics = preparePhonicsRequest(normalizeTextForTts(body.text || ""), body.stylePresetId)
+  const spoken = provider === "dashscope" ? prepareEnglishNumbers(normalizeTextForTts(body.text || ""), body.languageType) : { text: normalizeTextForTts(body.text || ""), languageType: body.languageType }
+  const phonics = preparePhonicsRequest(spoken.text, body.stylePresetId)
   const preset = body.stylePresetId ? stylePresets.find((p) => p.id === body.stylePresetId) : undefined
   const rawStylePrompt = stableStyleContract(
     {
@@ -389,7 +391,7 @@ async function synthesize(body: Partial<TtsRequestBody>): Promise<TtsAudio> {
     credentials,
     text: phonics.text,
     voice: body.voice,
-    languageType: body.languageType,
+    languageType: spoken.languageType,
     stylePrompt,
     speed: body.speed || defaultTargetSpeed(phonics.text),
     pitch: body.pitch,

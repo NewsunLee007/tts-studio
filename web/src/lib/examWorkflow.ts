@@ -6,18 +6,19 @@ export function buildExamIntro(name: string) {
   return `这里是${title}${/听力测试$/.test(title) ? "" : /听力$/.test(title) ? "测试" : /英语$/.test(title) ? "听力测试" : "英语听力测试"}。`
 }
 
-export function insertAfterSegment(input: Segment[], selectedUid: string | null, segment: Segment): Segment[] {
+export function insertAfterSegment(input: Segment[], selectedUid: string | null, segment: Segment, groupedRecording = false): Segment[] {
   const index = input.findIndex(item => item.uid === selectedUid)
   if (index < 0) return [...input, segment]
   const selected = input[index]
   const groupId = selected.type !== "music" ? selected.groupId : undefined
-  const splitsGroup = groupId && input.slice(index + 1).some(item => item.type === "tts" && item.groupId === groupId)
+  const combinedRecording = groupedRecording || input.some(item => item.type === "tts" && item.groupId === groupId && Boolean(item.providerOverrides?.generatedGroupText || item.providerOverrides?.geminiGroupText))
+  const splitsGroup = combinedRecording && groupId && input.slice(index + 1).some(item => item.type === "tts" && item.groupId === groupId)
   const result = input.map((item, itemIndex) => {
     if (!splitsGroup || item.type === "music" || item.groupId !== groupId) return item
     const nextGroup = itemIndex > index ? `${groupId}::after-${segment.uid}` : groupId
     if (item.type === "silence") return { ...item, groupId: nextGroup }
     return { ...item, groupId: nextGroup, audioId: undefined, audioUrl: undefined, status: "idle" as const, error: undefined, generationMeta: undefined }
   })
-  result.splice(index + 1, 0, segment)
+  result.splice(index + 1, 0, segment.type === "silence" && groupId && !splitsGroup ? { ...segment, groupId } : segment)
   return result
 }

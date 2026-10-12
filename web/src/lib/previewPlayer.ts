@@ -13,6 +13,20 @@ type Callbacks = {
 type BufferEntry = { buffer?: AudioBuffer; error?: Error; promise: Promise<void> }
 type ScheduledClip = { index: number; start: number; duration: number }
 
+class AudioLoadError extends Error {
+  readonly retryable: boolean
+  constructor(message: string, retryable: boolean) { super(message); this.retryable = retryable }
+}
+
+function retryDelay(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(signal.reason) }
+    const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve() }, ms)
+    if (signal.aborted) abort()
+    else signal.addEventListener("abort", abort, { once: true })
+  })
+}
+
 function audioUrl(clip: PreviewClip) {
   if (clip.kind === "audio") return clip.url
   if (clip.kind !== "music") return ""
@@ -41,6 +55,25 @@ export class PreviewPlayer {
     this.fetchAudio = fetchAudio
   }
 
+  private async fetchBuffer(url: string, signal: AbortSignal) {
+    for (let attempt = 0; ; attempt++) {
+      signal.throwIfAborted()
+      try {
+        const response = await this.fetchAudio(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]), cache: attempt ? "reload" : "default" })
+        if (!response.ok) throw new AudioLoadError(response.status === 410 ? "音频已过期，请重新生成；云端录音保留 7 天" : response.status === 404
+          ? "音频文件不存在，请回到录音生成重新生成这一段"
+          : `音频加载失败（HTTP ${response.status}）`, response.status === 408 || response.status === 429 || response.status >= 500)
+        const bytes = await response.arrayBuffer()
+        signal.throwIfAborted()
+        // Decode errors need a fresh download too: interrupted bodies can be incomplete.
+        return await this.context.decodeAudioData(bytes)
+      } catch (error) {
+        if (signal.aborted || attempt >= 2 || error instanceof AudioLoadError && !error.retryable) throw error
+        await retryDelay(400 * (attempt + 1), signal)
+      }
+    }
+  }
+
   private load(url: string) {
     const cached = this.buffers.get(url)
     if (cached) {
@@ -50,14 +83,12 @@ export class PreviewPlayer {
     }
     const signal = this.controller.signal
     const entry: BufferEntry = { promise: Promise.resolve() }
-    entry.promise = this.fetchAudio(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]) })
-      .then(async response => {
-        if (!response.ok) throw new Error(`音频加载失败（HTTP ${response.status}），请重试`)
-        const buffer = await this.context.decodeAudioData(await response.arrayBuffer())
+    entry.promise = this.fetchBuffer(url, signal)
+      .then(buffer => {
         if (!signal.aborted) entry.buffer = buffer
       })
       .catch(error => {
-        if (!signal.aborted) entry.error = new Error(error instanceof Error && error.name === "TimeoutError" ? "音频加载超时，请检查网络后重试" : error instanceof TypeError ? "音频加载失败，请检查网络后重试" : error instanceof Error ? error.message : "音频加载失败，请重试")
+        if (!signal.aborted) entry.error = new Error(error instanceof Error && error.name === "TimeoutError" ? "自动重试后仍加载超时，请点击播放继续" : error instanceof TypeError ? "自动重试后仍无法连接音频，请点击播放继续" : error instanceof Error ? error.message : "音频加载失败，请点击播放重试")
       })
     this.buffers.set(url, entry)
     // Keep a small decoded cache; a long listening script must not retain every clip.
@@ -90,7 +121,9 @@ export class PreviewPlayer {
     try {
       // Resume synchronously from the user's click, including on mobile Safari.
       const resumed = this.context.resume()
-      await Promise.all([resumed, ...this.prefetch()])
+      this.prefetch()
+      const firstUrl = audioUrl(clips[this.nextIndex])
+      await Promise.all([resumed, ...(firstUrl ? [this.load(firstUrl).promise] : [])])
       if (this.run !== run) return
       this.nextTime = this.context.currentTime + 0.06
       this.tick()
@@ -148,7 +181,10 @@ export class PreviewPlayer {
       const url = audioUrl(clip)
       const entry = url ? this.load(url) : undefined
       if (entry?.error) {
-        const message = entry.error.message
+        // A future failed prefetch must not cut off the audio already playing.
+        if (this.queue.length && this.nextTime > now) break
+        const message = `第 ${this.nextIndex + 1} 段：${entry.error.message}`
+        this.callbacks.progress(this.nextIndex, 0)
         this.stop()
         this.callbacks.error(message)
         return

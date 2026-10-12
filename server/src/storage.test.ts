@@ -1,12 +1,12 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { readAudio } from "../../cloudflare/audio.js"
+import { readAudio, AUDIO_RETENTION_MS } from "../../cloudflare/audio.js"
 
 test("R2 audio preserves byte ranges, HEAD, cache validation and format", async () => {
   const data = new TextEncoder().encode("0123456789")
   const bucket = {
-    head: async () => ({ size: data.length, httpEtag: '"test"', httpMetadata: { contentType: "audio/mpeg" } }),
+    head: async () => ({ size: data.length, uploaded: new Date(), httpEtag: '"test"', httpMetadata: { contentType: "audio/mpeg" } }),
     get: async (_key: string, options?: { range: { offset: number; length: number } }) => ({ body: options ? data.slice(options.range.offset, options.range.offset + options.range.length) : data })
   } as unknown as Parameters<typeof readAudio>[1]
   const request = (headers = {}, method = "GET") => new Request("https://example.test/audio", { headers, method })
@@ -21,6 +21,20 @@ test("R2 audio preserves byte ranges, HEAD, cache validation and format", async 
   assert.equal(head.headers.get("Content-Length"), "10")
   assert.equal(await head.text(), "")
   assert.equal((await readAudio(request(), bucket, "segment/id", "wav")).status, 404)
+})
+
+test("expired R2 audio cannot be downloaded while lifecycle cleanup is pending", async () => {
+  let reads = 0
+  const bucket = {
+    head: async () => ({ size: 10, uploaded: new Date(Date.now() - AUDIO_RETENTION_MS - 1), httpEtag: '"test"' }),
+    get: async () => { reads++; return null }
+  } as unknown as Parameters<typeof readAudio>[1]
+  for (const method of ["GET", "HEAD"]) {
+    const response = await readAudio(new Request("https://example.test/audio", { method }), bucket, "segment/id")
+    assert.equal(response.status, 410)
+    assert.ok(Date.parse(response.headers.get("X-Audio-Expires-At")!) <= Date.now())
+  }
+  assert.equal(reads, 0)
 })
 
 test("R2 persistence authenticates and verifies uploads; missing audio stays missing", async () => {

@@ -79,8 +79,6 @@ export function BulkPaste(props: Props) {
           清空
         </button>
       </div>
-      <p className="settingsHelp">先检查文字、声音与停顿，再生成录音。</p>
-
       {props.analysisMessage ? <div className="analysisMessage">{props.analysisMessage}</div> : null}
 
       <details className="bulkAdvanced">

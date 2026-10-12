@@ -16,14 +16,23 @@ function speech(uid: string, groupId = "group"): TtsSegment {
 }
 const pause: Segment = { uid: "pause", type: "silence", durationMs: 3000 }
 
-test("insertion uses exact selected position, separates generation groups and invalidates grouped recordings", () => {
+test("inserting a pause preserves adjacent individual recordings and their question group", () => {
   const input = [speech("first"), speech("second"), speech("other", "other")]
   const result = insertAfterSegment(input, "first", pause)
   assert.deepEqual(result.map(item => item.uid), ["first", "pause", "second", "other"])
-  assert.equal((result[0] as TtsSegment).audioId, undefined)
-  assert.notEqual((result[2] as TtsSegment).groupId, (result[0] as TtsSegment).groupId)
+  assert.equal((result[0] as TtsSegment).audioId, "first-audio")
+  assert.equal((result[2] as TtsSegment).audioId, "second-audio")
+  assert.equal((result[2] as TtsSegment).groupId, (result[0] as TtsSegment).groupId)
   assert.equal((result[3] as TtsSegment).audioId, "other-audio")
   assert.equal(input[0].audioId, "first-audio")
+})
+
+test("only a combined recording must be split when inserting inside its speech", () => {
+  const input = [speech("first"), speech("second")]
+  input[0].providerOverrides = { generatedGroupText: "first second" }
+  const result = insertAfterSegment(input, "first", pause)
+  assert.equal((result[0] as TtsSegment).audioId, undefined)
+  assert.notEqual((result[0] as TtsSegment).groupId, (result[2] as TtsSegment).groupId)
 })
 
 test("adding after an introduction preserves its recording and precedes the existing pause", () => {

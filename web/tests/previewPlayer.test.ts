@@ -86,8 +86,44 @@ test("a failed clip reports an error instead of silently skipping speech", async
   try {
     await f.player.start([{ kind: "audio", url: "/missing" }, { kind: "silence", durationMs: 500 }])
     assert.equal(f.starts.length, 0)
-    assert.match(f.errors[0], /404/)
+    assert.match(f.errors[0], /第 1 段.*文件不存在/)
     assert.equal(f.buffering.at(-1), false)
+  } finally { f.player.dispose() }
+})
+
+test("temporary connection and server failures recover automatically", async () => {
+  let attempts = 0
+  const f = fixture((async () => {
+    attempts++
+    if (attempts === 1) throw new TypeError("Failed to fetch")
+    if (attempts === 2) return new Response(null, { status: 503 })
+    return new Response(new Uint8Array([20]))
+  }) as typeof fetch)
+  try {
+    await f.player.start([{ kind: "audio", url: "/unstable" }])
+    assert.equal(attempts, 3)
+    assert.equal(f.starts.length, 1)
+    assert.deepEqual(f.errors, [])
+  } finally { f.player.dispose() }
+})
+
+test("a missing later clip does not interrupt scheduled speech and retry resumes that clip", async () => {
+  let missing = true
+  const f = fixture((async url => String(url) === "/two" && missing
+    ? new Response(null, { status: 404 })
+    : new Response(new Uint8Array([20]))) as typeof fetch)
+  try {
+    const clips = ["/one", "/two"].map(url => ({ kind: "audio" as const, url }))
+    await f.player.start(clips)
+    assert.equal(f.starts.length, 1)
+    assert.deepEqual(f.errors, [])
+    f.context.currentTime = 12.2
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert.match(f.errors[0], /第 2 段/)
+    assert.deepEqual(f.progress.at(-1), [1, 0])
+    missing = false
+    await f.player.start(clips, 1)
+    assert.equal(f.starts.length, 2)
   } finally { f.player.dispose() }
 })
 
